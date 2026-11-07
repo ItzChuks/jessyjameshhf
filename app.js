@@ -1,5 +1,5 @@
 // ===== CONFIG (edit these) =====
-const PB_URL = 'https://YOUR-POCKETBASE-SERVICE.up.railway.app';   // your PocketBase on Railway (no trailing slash)
+const PB_URL = 'https://jessyjameshhf-production.up.railway.app/';   // your PocketBase on Railway (no trailing slash)
 const USE_MOCK = false; // false = real PocketBase (default). true = offline demo using localStorage + mock.js.
 const BRAND = 'Jessy James Helping Hands Foundation';   // full name (invoices, terms, page titles)
 const BRAND_SHORT = 'JJHHF';                            // short name (sidebar, small screens)
