@@ -38,15 +38,44 @@ function credit(app, uid, amount, ref, note) {
 // An instalment is ready from the start of its period (daily: midnight, weekly: Monday, monthly: the 1st) and is "late" after its
 // deadline, in which case it costs double. When the money runs out, the remaining plans simply wait for the next top-up.
 // Returns the number of instalments collected.
+// Database timestamps: PocketBase stores dates as "YYYY-MM-DD HH:MM:SS.sssZ", so they compare correctly as text.
+const ts = d => d.toISOString().replace("T", " ");
+const DONE = "2999-12-31 00:00:00.000Z";          // next_collect of a fully paid plan: the collector never looks at it again
+const RECHECK_MS = 6 * 36e5;                      // a plan waiting for a top-up is re-checked after 6 hours (a top-up re-runs collect at once anyway)
+
+// instalments covered by a subscription, counted from its payment history (only used to repair or back-fill paid_count)
+const countPaid = (app, sid) => app.findRecordsByFilter("payments", "subscription = {:s} && status != 'rejected'", "", 0, 0, { s: sid }).reduce((a, p) => a + (p.getInt("installments") || 1), 0);
+// when the collector should next look at a plan that has "paid" instalments covered
+function nextCollect(sub, pl, paid) {
+  const n = R.sched(sub, pl).n;
+  return paid >= n ? DONE : ts(R.collectAt(sub, pl, paid));
+}
+// Re-works out paid_count and next_collect from the payment history. Called for plans the collector has never seen (next_collect empty)
+// and whenever an admin changes or deletes a payment.
+function syncSub(app, subOrId) {
+  const s = typeof subOrId === "string" ? app.findRecordById("subscriptions", subOrId) : subOrId;
+  let plan; try { plan = app.findRecordById("plans", s.getString("plan")); } catch (_) { return s; }
+  const paid = countPaid(app, s.id);
+  s.set("paid_count", paid);
+  s.set("next_collect", nextCollect({ id: s.id, created: s.getString("created") }, R.planObj(plan), paid));
+  app.save(s);
+  return s;
+}
+
+// Takes every instalment that is ready from the wallet, oldest deadline first, plan by plan.
+// An instalment is ready from the start of its period (daily: midnight, weekly: Monday, monthly: the 1st) and is "late" after its
+// deadline, in which case it costs double. When the money runs out, the remaining plans simply wait for the next top-up.
+// Uses the stored paid_count (no payment history is read) and moves next_collect forward. Returns the number of instalments collected.
 function collect(app, uid) {
   const now = new Date();
   const subs = app.findRecordsByFilter("subscriptions", "user = {:u} && status = 'active'", "created", 0, 0, { u: uid });
   const items = [];
   subs.forEach(s => {
+    if (s.getString("next_collect") === "") s = syncSub(app, s);           // first visit for this plan
+    if (s.getString("next_collect") === DONE) return;                       // fully paid
     let plan; try { plan = app.findRecordById("plans", s.getString("plan")); } catch (_) { return; }
     const pl = R.planObj(plan), sub = { id: s.id, created: s.getString("created") };
-    const paid = app.findRecordsByFilter("payments", "subscription = {:s} && status != 'rejected'", "", 0, 0, { s: s.id }).reduce((a, p) => a + (p.getInt("installments") || 1), 0);
-    items.push({ sub, pl, plan, paid, blocked: false });
+    items.push({ rec: s, sub, pl, plan, paid: s.getInt("paid_count"), start: s.getInt("paid_count"), blocked: false });
   });
   let bal = balanceOf(app, uid), done = 0;
   for (;;) {
@@ -68,6 +97,14 @@ function collect(app, uid) {
     bal = post(app, uid, -cost, "contribution", best.pl.name + (late ? " (late, includes " + naira(st.pen) + " penalty)" : ""), { plan: best.plan.id, subscription: best.sub.id });
     best.paid++; done++;
   }
+  // store where each plan now stands; a plan waiting for money is looked at again later (or straight away when the member tops up)
+  items.forEach(it => {
+    let next = nextCollect(it.sub, it.pl, it.paid);
+    if (it.blocked) next = ts(new Date(now.getTime() + RECHECK_MS));
+    if (it.paid === it.start && it.rec.getString("next_collect") === next) return;
+    it.rec.set("paid_count", it.paid); it.rec.set("next_collect", next);
+    app.save(it.rec);
+  });
   return done;
 }
 
@@ -97,6 +134,8 @@ function joinPlan(app, uid, planId) {
     app.save(p);
     post(app, uid, -catchup, "catchup", "Catch-up · " + pl.name + " (" + c + " instalment" + (c === 1 ? "" : "s") + ")", { plan: plan.id, subscription: sub.id });
   }
+  sub.set("paid_count", c); sub.set("next_collect", nextCollect(s, pl, c));
+  app.save(sub);
   collect(app, uid);                                             // today's instalment, if the wallet still has enough
   return { subscription: sub.id, catchup, instalments: c };
 }
@@ -111,4 +150,4 @@ function inTx(fn) {
   }
 }
 
-module.exports = { FEES, naira, post, credit, collect, joinPlan, balanceOf, inTx };
+module.exports = { FEES, naira, post, credit, collect, joinPlan, balanceOf, inTx, syncSub, ts, DONE };

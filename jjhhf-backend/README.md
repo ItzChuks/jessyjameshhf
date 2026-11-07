@@ -35,6 +35,19 @@ Sign up on the website, then in the PocketBase panel open **users**, edit yourse
 
 **Keep in sync with the website's `app.js`:** `RULES`/season (`rules.js`) and `FEES` (`wallet.js`). The server values are the ones charged.
 
+## Built for scale
+
+- **Indexes** on every frequently searched field (migration `1760000006_scale.js`).
+- **Stored progress:** each subscription keeps `paid_count` and `next_collect`, so the collector never re-reads payment history. They are updated automatically; if an admin confirms, rejects or deletes a payment, the plan is re-worked out.
+- **Collector:** runs every minute, visits only members with a plan due, oldest first, within a 50-second budget (tested: about 1,500 members per second), and never overlaps itself. A plan waiting for a top-up is re-checked every 6 hours, and at once when the member tops up.
+- **Admin totals** come from `GET /api/jjhhf/admin/stats` (worked out by the database), and admin lists load 50 records per page.
+
+### Railway sizing
+
+- Keep **1 replica**. PocketBase uses one database file, and two copies would corrupt it. Scale **up** (more CPU/RAM), not out.
+- Starting point: 1 vCPU / 1 GB RAM covers a few hundred people online. For thousands online at once, raise the limits to about 4–8 vCPU / 4–8 GB (Railway Pro allows more). Logins and sign-ups use the most CPU (password hashing), and each open dashboard holds one live connection.
+- Put the Volume in the same region as the service. Watch CPU and RAM in Railway's Metrics tab and raise the limits before they reach about 70%.
+
 ## Rules summary
 
 - Deadlines in Lagos time: daily before 12:00 noon, weekly Friday 12:00 noon, monthly the 2nd of the next month. Late = double; the penalty never counts as savings.

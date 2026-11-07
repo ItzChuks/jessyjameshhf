@@ -72,13 +72,42 @@ routerAdd("POST", "/api/jjhhf/fee/pay", (e) => {
   return e.json(200, Object.assign({ ok: true }, out));
 }, $apis.requireAuth());
 
-// 5) Safety net every 5 minutes: new periods open (a new day, Monday, the 1st of the month), so instalments become ready to collect.
-cronAdd("jjhhf_wallet_collect", "*/5 * * * *", () => {
+// 5) The collector. Runs every minute but only visits members who have a plan due (next_collect has passed), oldest first,
+//    within a 50-second budget; whatever is left is picked up on the next run. A lock stops two runs overlapping.
+cronAdd("jjhhf_wallet_collect", "* * * * *", () => {
   const W = require(`${__hooks}/wallet.js`);
-  const seen = {};
-  $app.findRecordsByFilter("subscriptions", "status = 'active'", "", 0, 0).forEach(s => {
-    const uid = s.getString("user");
-    if (seen[uid]) return; seen[uid] = true;
-    try { $app.runInTransaction((tx) => { W.collect(tx, uid); }); } catch (err) { console.log("jjhhf collect:", uid, String(err)); }
-  });
+  const store = $app.store(), KEY = "jjhhf_collect_lock", t0 = Date.now();
+  const held = store.get(KEY);
+  if (held && t0 - Number(held) < 10 * 60e3) return;           // a previous run is still going
+  store.set(KEY, t0);
+  try {
+    const rows = arrayOf(new DynamicModel({ uid: "" }));
+    $app.db().newQuery("SELECT [[user]] AS uid FROM {{subscriptions}} WHERE [[status]] = 'active' AND ([[next_collect]] = '' OR [[next_collect]] <= {:now}) GROUP BY [[user]] ORDER BY MIN([[next_collect]]) LIMIT 50000")
+      .bind({ now: W.ts(new Date()) }).all(rows);
+    let n = 0;
+    for (const r of rows) {
+      if (Date.now() - t0 > 50e3) break;
+      try { $app.runInTransaction((tx) => { W.collect(tx, r.uid); }); n++; } catch (err) { console.log("jjhhf collect:", r.uid, String(err)); }
+    }
+    if (rows.length) console.log("jjhhf collect: visited", n, "of", rows.length, "members with a plan due in", Date.now() - t0, "ms");
+  } finally { store.remove(KEY); }
 });
+
+// 6) Admin overview totals, worked out by the database (no need to download every record into the browser).
+routerAdd("GET", "/api/jjhhf/admin/stats", (e) => {
+  if (e.auth.getString("role") !== "admin") throw new ForbiddenError("Admins only.");
+  const one = (sql, fields) => { const m = new DynamicModel(fields); $app.db().newQuery(sql).one(m); return m; };
+  const u = one("SELECT COUNT(*) AS members, COALESCE(SUM(CASE WHEN [[shirt_paid]] THEN 1 ELSE 0 END), 0) AS registered, COALESCE(SUM(CASE WHEN [[va_number]] != '' THEN 1 ELSE 0 END), 0) AS withAccount FROM {{users}} WHERE [[role]] != 'admin'", { members: 0, registered: 0, withAccount: 0 });
+  const all = one("SELECT COUNT(*) AS users, COALESCE(SUM([[wallet_balance]]), 0) AS held FROM {{users}}", { users: 0, held: -0 });
+  const s = one("SELECT COUNT(*) AS n, COALESCE(SUM(CASE WHEN [[status]] = 'active' THEN 1 ELSE 0 END), 0) AS active FROM {{subscriptions}}", { n: 0, active: 0 });
+  const p = one("SELECT COALESCE(SUM(CASE WHEN [[status]] = 'pending' THEN 1 ELSE 0 END), 0) AS pending, COALESCE(SUM(CASE WHEN [[status]] = 'confirmed' THEN [[amount]] ELSE 0 END), 0) AS confirmed, COALESCE(SUM(CASE WHEN [[status]] = 'confirmed' THEN [[penalty]] ELSE 0 END), 0) AS penalties FROM {{payments}}", { pending: 0, confirmed: -0, penalties: -0 });
+  const f = one("SELECT COALESCE(SUM([[amount]]), 0) AS fees FROM {{fees}} WHERE [[status]] = 'confirmed'", { fees: -0 });
+  const po = one("SELECT COALESCE(SUM(CASE WHEN [[status]] = 'pending' THEN 1 ELSE 0 END), 0) AS pending FROM {{payouts}}", { pending: 0 });
+  const pl = one("SELECT COUNT(*) AS n FROM {{plans}}", { n: 0 });
+  const tu = one("SELECT COUNT(*) AS n, COALESCE(SUM([[amount]]), 0) AS total FROM {{wallet_txs}} WHERE [[kind]] = 'topup'", { n: 0, total: -0 });
+  return e.json(200, {
+    users: all.users, members: u.members, registered: u.registered, unregistered: u.members - u.registered, withAccount: u.withAccount, admins: all.users - u.members,
+    held: all.held, subscriptions: s.n, activeSubscriptions: s.active, pendingPayments: p.pending, confirmedTotal: p.confirmed, penalties: p.penalties,
+    fees: f.fees, pendingPayouts: po.pending, plans: pl.n, topups: tu.n, topupTotal: tu.total,
+  });
+}, $apis.requireAuth());

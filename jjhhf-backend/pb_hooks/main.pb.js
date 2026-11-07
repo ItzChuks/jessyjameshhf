@@ -47,3 +47,17 @@ onRecordCreateRequest((e) => {
   e.record.set("status", "pending");
   e.next();
 }, "payouts");
+
+// When an admin confirms, rejects or deletes a payment, the plan's stored progress (paid_count / next_collect) is worked out again.
+// (Payments the server creates itself keep the plan up to date directly, see wallet.js.)
+// (Handlers are isolated, so the code is written out in each one.)
+onRecordAfterUpdateSuccess((e) => {
+  e.next();
+  const sid = e.record.getString("subscription");
+  if (sid) try { require(`${__hooks}/wallet.js`).syncSub(e.app, sid); } catch (err) { console.log("jjhhf resync:", sid, String(err)); }
+}, "payments");
+onRecordAfterDeleteSuccess((e) => {
+  e.next();
+  const sid = e.record.getString("subscription");
+  if (sid) try { require(`${__hooks}/wallet.js`).syncSub(e.app, sid); } catch (err) { console.log("jjhhf resync:", sid, String(err)); }
+}, "payments");
