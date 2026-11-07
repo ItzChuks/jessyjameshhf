@@ -1,0 +1,382 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><script src="https://cdn.tailwindcss.com/3.4.17"></script><script src="theme.js"></script><script src="https://cdn.jsdelivr.net/npm/pocketbase@0.26.8/dist/pocketbase.umd.js"></script><script src="mock.js"></script><script src="app.js"></script><title>Account – Jessy James Helping Hands Foundation</title></head>
+<body class="min-h-screen bg-slate-50 lg:grid lg:grid-cols-2">
+<aside class="hidden lg:flex flex-col justify-between bg-brand-950 text-white p-12 relative overflow-hidden" style="background-image:radial-gradient(40rem 26rem at 0% 0%,rgba(93,134,247,.28),transparent),radial-gradient(30rem 20rem at 100% 100%,rgba(245,183,42,.18),transparent)">
+  <a href="index.html" class="flex items-center gap-3"><img src="logo.svg" alt="" class="w-11 h-11 rounded-xl ring-1 ring-white/20"><span class="leading-tight"><span class="block font-semibold">Jessy James</span><span class="block text-sm text-brand-200">Helping Hands Foundation</span></span></a>
+  <div class="max-w-md">
+    <p class="text-accent-300 text-sm font-semibold uppercase tracking-[.18em]">Ikotun, Lagos</p>
+    <h2 class="font-display text-4xl xl:text-5xl leading-[1.1] mt-4">Saving is easier when we hold hands.</h2>
+    <p class="text-brand-100/80 mt-5 leading-relaxed">Join a community that saves together daily, weekly or monthly, and collects cash or food items when the season ends. Your wallet, your plans and every receipt live on your dashboard.</p>
+    <ul class="mt-8 space-y-3 text-sm text-brand-100/90">
+      <li class="flex gap-3"><span class="w-6 h-6 rounded-full bg-accent-400 text-brand-950 grid place-items-center text-xs font-bold shrink-0">1</span>Create your account in two minutes</li>
+      <li class="flex gap-3"><span class="w-6 h-6 rounded-full bg-accent-400 text-brand-950 grid place-items-center text-xs font-bold shrink-0">2</span>Get your own account number and fund your wallet</li>
+      <li class="flex gap-3"><span class="w-6 h-6 rounded-full bg-accent-400 text-brand-950 grid place-items-center text-xs font-bold shrink-0">3</span>Join a plan; contributions are paid automatically</li>
+    </ul>
+  </div>
+  <p class="text-xs text-brand-200/70">© <span id="yr"></span> Jessy James Helping Hands Foundation</p>
+</aside>
+<div class="flex items-center justify-center px-4 py-10 min-h-screen lg:min-h-0">
+<div class="w-full max-w-md">
+  <a href="index.html" class="lg:hidden flex flex-col items-center gap-3 mb-6 text-center"><img src="logo.svg" alt="Jessy James Helping Hands Foundation logo" class="w-14 h-14 rounded-2xl shadow-lg"><span class="font-semibold text-slate-900 leading-tight">Jessy James<br><span class="text-sm font-medium text-slate-500">Helping Hands Foundation</span></span></a>
+  <div class="bg-white rounded-2xl shadow-xl shadow-brand-900/5 ring-1 ring-slate-200 p-6 sm:p-8">
+    <div class="grid grid-cols-2 bg-slate-100 rounded-lg p-1 mb-6 text-sm font-medium"><button type="button" id="t-login" class="py-2 rounded-md">Log in</button><button type="button" id="t-register" class="py-2 rounded-md">Sign up</button></div>
+    <h1 id="ttl" class="font-display text-2xl text-slate-900"></h1>
+    <p id="sub" class="text-sm text-slate-500 mt-1 mb-5"></p>
+    <form id="f" class="space-y-4" novalidate></form>
+    <p id="err" role="alert" class="hidden mt-4 text-sm text-red-700 bg-red-50 ring-1 ring-red-200 rounded-lg px-3 py-2"></p>
+    <p id="alt" class="text-sm text-slate-500 text-center mt-6"></p>
+  </div>
+  <a href="index.html" class="block text-center text-sm text-slate-500 hover:text-slate-800 mt-6">&larr; Back to home</a>
+</div>
+</div>
+
+<script>
+(()=>{
+// ---------- countries: ISO | name | dial code ----------
+const RAW=`AF|Afghanistan|93
+AL|Albania|355
+DZ|Algeria|213
+AS|American Samoa|1684
+AD|Andorra|376
+AO|Angola|244
+AI|Anguilla|1264
+AG|Antigua and Barbuda|1268
+AR|Argentina|54
+AM|Armenia|374
+AW|Aruba|297
+AU|Australia|61
+AT|Austria|43
+AZ|Azerbaijan|994
+BS|Bahamas|1242
+BH|Bahrain|973
+BD|Bangladesh|880
+BB|Barbados|1246
+BY|Belarus|375
+BE|Belgium|32
+BZ|Belize|501
+BJ|Benin|229
+BM|Bermuda|1441
+BT|Bhutan|975
+BO|Bolivia|591
+BA|Bosnia and Herzegovina|387
+BW|Botswana|267
+BR|Brazil|55
+VG|British Virgin Islands|1284
+BN|Brunei|673
+BG|Bulgaria|359
+BF|Burkina Faso|226
+BI|Burundi|257
+KH|Cambodia|855
+CM|Cameroon|237
+CA|Canada|1
+CV|Cape Verde|238
+KY|Cayman Islands|1345
+CF|Central African Republic|236
+TD|Chad|235
+CL|Chile|56
+CN|China|86
+CO|Colombia|57
+KM|Comoros|269
+CG|Congo|242
+CD|DR Congo|243
+CK|Cook Islands|682
+CR|Costa Rica|506
+CI|Côte d'Ivoire|225
+HR|Croatia|385
+CU|Cuba|53
+CW|Curaçao|599
+CY|Cyprus|357
+CZ|Czechia|420
+DK|Denmark|45
+DJ|Djibouti|253
+DM|Dominica|1767
+DO|Dominican Republic|1809
+EC|Ecuador|593
+EG|Egypt|20
+SV|El Salvador|503
+GQ|Equatorial Guinea|240
+ER|Eritrea|291
+EE|Estonia|372
+SZ|Eswatini|268
+ET|Ethiopia|251
+FK|Falkland Islands|500
+FO|Faroe Islands|298
+FJ|Fiji|679
+FI|Finland|358
+FR|France|33
+GF|French Guiana|594
+PF|French Polynesia|689
+GA|Gabon|241
+GM|Gambia|220
+GE|Georgia|995
+DE|Germany|49
+GH|Ghana|233
+GI|Gibraltar|350
+GR|Greece|30
+GL|Greenland|299
+GD|Grenada|1473
+GP|Guadeloupe|590
+GU|Guam|1671
+GT|Guatemala|502
+GG|Guernsey|44
+GN|Guinea|224
+GW|Guinea-Bissau|245
+GY|Guyana|592
+HT|Haiti|509
+HN|Honduras|504
+HK|Hong Kong|852
+HU|Hungary|36
+IS|Iceland|354
+IN|India|91
+ID|Indonesia|62
+IR|Iran|98
+IQ|Iraq|964
+IE|Ireland|353
+IM|Isle of Man|44
+IL|Israel|972
+IT|Italy|39
+JM|Jamaica|1876
+JP|Japan|81
+JE|Jersey|44
+JO|Jordan|962
+KZ|Kazakhstan|7
+KE|Kenya|254
+KI|Kiribati|686
+XK|Kosovo|383
+KW|Kuwait|965
+KG|Kyrgyzstan|996
+LA|Laos|856
+LV|Latvia|371
+LB|Lebanon|961
+LS|Lesotho|266
+LR|Liberia|231
+LY|Libya|218
+LI|Liechtenstein|423
+LT|Lithuania|370
+LU|Luxembourg|352
+MO|Macao|853
+MG|Madagascar|261
+MW|Malawi|265
+MY|Malaysia|60
+MV|Maldives|960
+ML|Mali|223
+MT|Malta|356
+MH|Marshall Islands|692
+MQ|Martinique|596
+MR|Mauritania|222
+MU|Mauritius|230
+YT|Mayotte|262
+MX|Mexico|52
+FM|Micronesia|691
+MD|Moldova|373
+MC|Monaco|377
+MN|Mongolia|976
+ME|Montenegro|382
+MS|Montserrat|1664
+MA|Morocco|212
+MZ|Mozambique|258
+MM|Myanmar|95
+NA|Namibia|264
+NR|Nauru|674
+NP|Nepal|977
+NL|Netherlands|31
+NC|New Caledonia|687
+NZ|New Zealand|64
+NI|Nicaragua|505
+NE|Niger|227
+NG|Nigeria|234
+NU|Niue|683
+KP|North Korea|850
+MK|North Macedonia|389
+MP|Northern Mariana Islands|1670
+NO|Norway|47
+OM|Oman|968
+PK|Pakistan|92
+PW|Palau|680
+PS|Palestine|970
+PA|Panama|507
+PG|Papua New Guinea|675
+PY|Paraguay|595
+PE|Peru|51
+PH|Philippines|63
+PL|Poland|48
+PT|Portugal|351
+PR|Puerto Rico|1787
+QA|Qatar|974
+RE|Réunion|262
+RO|Romania|40
+RU|Russia|7
+RW|Rwanda|250
+WS|Samoa|685
+SM|San Marino|378
+ST|São Tomé and Príncipe|239
+SA|Saudi Arabia|966
+SN|Senegal|221
+RS|Serbia|381
+SC|Seychelles|248
+SL|Sierra Leone|232
+SG|Singapore|65
+SX|Sint Maarten|1721
+SK|Slovakia|421
+SI|Slovenia|386
+SB|Solomon Islands|677
+SO|Somalia|252
+ZA|South Africa|27
+KR|South Korea|82
+SS|South Sudan|211
+ES|Spain|34
+LK|Sri Lanka|94
+KN|St Kitts and Nevis|1869
+LC|St Lucia|1758
+VC|St Vincent and the Grenadines|1784
+SD|Sudan|249
+SR|Suriname|597
+SE|Sweden|46
+CH|Switzerland|41
+SY|Syria|963
+TW|Taiwan|886
+TJ|Tajikistan|992
+TZ|Tanzania|255
+TH|Thailand|66
+TL|Timor-Leste|670
+TG|Togo|228
+TK|Tokelau|690
+TO|Tonga|676
+TT|Trinidad and Tobago|1868
+TN|Tunisia|216
+TR|Türkiye|90
+TM|Turkmenistan|993
+TC|Turks and Caicos Islands|1649
+TV|Tuvalu|688
+UG|Uganda|256
+UA|Ukraine|380
+AE|United Arab Emirates|971
+GB|United Kingdom|44
+US|United States|1
+UY|Uruguay|598
+VI|US Virgin Islands|1340
+UZ|Uzbekistan|998
+VU|Vanuatu|678
+VA|Vatican City|379
+VE|Venezuela|58
+VN|Vietnam|84
+WF|Wallis and Futuna|681
+YE|Yemen|967
+ZM|Zambia|260
+ZW|Zimbabwe|263`;
+const C=RAW.split('\n').map(l=>{const [i,n,d]=l.split('|');return{i,n,d}}).sort((a,b)=>a.n.localeCompare(b.n));
+
+// ---------- small helpers ----------
+const flag=(c,cls='w-5 h-[15px]')=>`<img src="https://flagcdn.com/w40/${c.i.toLowerCase()}.png" alt="" class="${cls} rounded-[2px] object-cover shrink-0" onerror="this.style.visibility='hidden'">`;
+const EYE='<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>';
+const EYE_OFF='<path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><path d="M1 1l22 22"/>';
+const svg=p=>`<svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${p}</svg>`;
+const L=(t,id)=>`<label for="${id}" class="text-sm font-medium text-slate-700">${t}</label>`;
+const field=(label,name,type,ac,extra='',hint='')=>`<div>${L(label,name)}<input id="${name}" name="${name}" type="${type}" autocomplete="${ac}" ${extra} class="${inp} mt-1">${hint?`<p class="text-xs text-slate-500 mt-1">${hint}</p>`:''}</div>`;
+const pwField=(label,name,ac,hint='')=>`<div>${L(label,name)}<div class="relative mt-1"><input id="${name}" name="${name}" type="password" autocomplete="${ac}" required minlength="8" class="${inp} pr-11"><button type="button" data-eye="${name}" aria-label="Show password" class="absolute right-1.5 top-1/2 -translate-y-1/2 p-1.5 rounded-md text-slate-400 hover:text-slate-700">${svg(EYE)}</button></div>${hint?`<p class="text-xs text-slate-500 mt-1">${hint}</p>`:''}</div>`;
+
+let mode=new URLSearchParams(location.search).get('mode')==='register'?'register':'login';
+let sel=C.find(c=>c.i==='NG');   // default country, changeable
+let shown=[],act=-1;
+
+// ---------- page ----------
+function draw(){
+ ['login','register'].forEach(m=>$('#t-'+m).className='py-2 rounded-md transition '+(m===mode?'bg-white shadow text-slate-900':'text-slate-500 hover:text-slate-700'));
+ const reg=mode==='register';
+ $('#ttl').textContent=reg?'Create your account':'Welcome back';
+ $('#sub').textContent=reg?'Join the foundation and start saving today.':'Log in to manage your savings plans.';
+ $('#alt').innerHTML=reg?'Already have an account? <button type="button" id="sw" class="text-emerald-800 font-medium hover:underline">Log in</button>':'New here? <button type="button" id="sw" class="text-emerald-800 font-medium hover:underline">Create an account</button>';
+ $('#sw').onclick=()=>{mode=reg?'login':'register';draw()};
+ $('#f').innerHTML=(reg?
+   field('Full name','name','text','name','required placeholder="e.g. Ada Okafor"')
+  +`<div>${L('Country','country-q')}
+     <div class="relative mt-1">
+       <span id="cb-flag" class="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"></span>
+       <input id="country-q" type="text" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="cb-list" placeholder="Search for your country" class="${inp} pl-11 pr-9">
+       <svg class="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+       <ul id="cb-list" role="listbox" class="hidden absolute z-20 mt-1 w-full max-h-56 overflow-auto rounded-lg border border-slate-200 bg-white shadow-lg py-1 text-sm"></ul>
+     </div></div>`
+  +`<div>${L('Phone number','phone')}
+     <div class="flex mt-1 gap-2">
+       <div id="dial" class="inline-flex items-center gap-2 px-3 rounded-lg border border-slate-300 bg-slate-50 text-sm text-slate-700 whitespace-nowrap select-none"></div>
+       <input id="phone" name="phone" type="tel" inputmode="numeric" autocomplete="tel-national" required placeholder="801 234 5678" class="${inp}">
+     </div>
+     <p class="text-xs text-slate-500 mt-1">Enter your number without the country code or leading 0.</p></div>`:'')
+ +field('Email address','email','email',reg?'email':'username','required placeholder="you@example.com"')
+ +pwField('Password',reg?'password':'password',reg?'new-password':'current-password',reg?'At least 8 characters.':'')
+ +(reg?pwField('Confirm password','passwordConfirm','new-password'):'')
+ +(reg?`<div class="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900"><p class="text-sm font-semibold">Before you join</p><ul class="list-disc pl-4 mt-1 space-y-0.5"><li>One-time t-shirt fee: <b>${naira(FEES.shirt)}</b>. You can use the site without it; it is only required when you request a payout.</li><li>Registration (joining) fee: <b>${naira(FEES.join)}</b>, taken from your wallet before you join any plan. You fund the wallet by transfer to your own account number.</li><li>Cash and Foodie savings run <b>1 January to 30 November</b>; joining part-way means paying the contributions already due.</li><li>Payout clearance fee: <b>${naira(FEES.clearance)}</b>, taken from your wallet with every payout request.</li><li>To request a payout from a plan, you must have another plan actively running.</li></ul></div>
+  <label class="flex items-start gap-2 text-sm text-slate-700 cursor-pointer"><input id="terms" type="checkbox" class="mt-0.5 w-4 h-4 shrink-0 accent-emerald-700"><span>I have read and accept the <a href="terms.html" target="_blank" class="text-emerald-800 underline">Terms and Conditions</a>, including these fees.</span></label>`:'')
+ +`<button id="go" class="${btn} w-full py-2.5 mt-1">${reg?'Create account':'Log in'}</button>`;
+ hideErr();
+ document.querySelectorAll('[data-eye]').forEach(b=>b.onclick=()=>{const i=$('#'+b.dataset.eye),show=i.type==='password';i.type=show?'text':'password';b.innerHTML=svg(show?EYE_OFF:EYE);b.setAttribute('aria-label',show?'Hide password':'Show password')});
+ if(reg)initCountry();
+}
+
+// ---------- searchable country picker ----------
+function initCountry(){
+ const q=$('#country-q'),list=$('#cb-list');
+ const paint=()=>{$('#cb-flag').innerHTML=flag(sel);$('#dial').innerHTML=flag(sel)+'<span>+'+sel.d+'</span>';q.value=sel.n};
+ const open=()=>{list.classList.remove('hidden');q.setAttribute('aria-expanded','true')};
+ const close=()=>{list.classList.add('hidden');q.setAttribute('aria-expanded','false');act=-1;paint()};
+ const pick=c=>{sel=c;close();$('#phone').focus()};
+ const render=txt=>{
+  const s=txt.trim().toLowerCase().replace(/^\+/,'');
+  shown=!s?C:C.filter(c=>/^\d+$/.test(s)?c.d.startsWith(s):(c.n.toLowerCase().includes(s)||c.i.toLowerCase()===s))
+         .sort((a,b)=>(b.n.toLowerCase().startsWith(s))-(a.n.toLowerCase().startsWith(s)));
+  act=shown.length&&s?0:shown.indexOf(sel);
+  list.innerHTML=shown.length?shown.map((c,i)=>`<li role="option" data-i="${i}" class="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-slate-100 ${i===act?'bg-slate-100':''}">${flag(c)}<span class="text-slate-800">${esc(c.n)}</span><span class="ml-auto text-slate-400">+${c.d}</span></li>`).join(''):'<li class="px-3 py-3 text-slate-500">No country found</li>';
+  const a=list.querySelector('.bg-slate-100');if(a)a.scrollIntoView({block:'nearest'});
+ };
+ const mark=()=>{list.querySelectorAll('li[data-i]').forEach(li=>li.classList.toggle('bg-slate-100',+li.dataset.i===act));const a=list.querySelector(`li[data-i="${act}"]`);if(a)a.scrollIntoView({block:'nearest'})};
+ paint();
+ q.onfocus=()=>{render('');open();q.select()};
+ q.onclick=()=>{if(list.classList.contains('hidden')){render('');open();q.select()}};
+ q.oninput=()=>{render(q.value);open()};
+ q.onblur=close;
+ q.onkeydown=e=>{
+  if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();if(list.classList.contains('hidden')){render('');open()}if(!shown.length)return;act=(act+(e.key==='ArrowDown'?1:-1)+shown.length)%shown.length;mark()}
+  else if(e.key==='Enter'){e.preventDefault();if(!list.classList.contains('hidden')&&shown[act])pick(shown[act])}
+  else if(e.key==='Escape'){close()}
+ };
+ list.onmousedown=e=>{e.preventDefault();const li=e.target.closest('li[data-i]');if(li)pick(shown[+li.dataset.i])};
+ $('#phone').oninput=e=>{e.target.value=e.target.value.replace(/[^\d\s-]/g,'')};
+}
+
+// ---------- feedback ----------
+const showErr=m=>{const e=$('#err');e.textContent=m;e.classList.remove('hidden')};
+const hideErr=()=>{const e=$('#err');e.textContent='';e.classList.add('hidden')};
+const busy=on=>{const b=$('#go');b.disabled=on;b.classList.toggle('opacity-70',on);b.textContent=on?'Please wait…':(mode==='register'?'Create account':'Log in')};
+
+// ---------- submit ----------
+$('#t-login').onclick=()=>{mode='login';draw()};
+$('#t-register').onclick=()=>{mode='register';draw()};
+$('#f').onsubmit=async e=>{
+ e.preventDefault();hideErr();
+ const d=Object.fromEntries(new FormData(e.target));
+ const email=(d.email||'').trim();
+ try{
+  if(!email||!d.password)throw new Error('Enter your email and password.');
+  if(mode==='register'){
+   if(!(d.name||'').trim())throw new Error('Enter your full name.');
+   if(!sel)throw new Error('Please choose your country from the list.');
+   const digits=(d.phone||'').replace(/\D/g,'').replace(/^0+/,'');
+   if(digits.length<6||digits.length>12)throw new Error('Enter a valid phone number.');
+   if(d.password.length<8)throw new Error('Password must be at least 8 characters.');
+   if(d.password!==d.passwordConfirm)throw new Error('Passwords do not match.');
+   if(!$('#terms').checked)throw new Error('Please accept the Terms and Conditions to create your account.');
+   busy(true);
+   await pb.collection('users').create({name:d.name.trim(),email,password:d.password,passwordConfirm:d.passwordConfirm,country:sel.n,phone:'+'+sel.d+digits,emailVisibility:true,terms_accepted:true});
+  }
+  busy(true);
+  await pb.collection('users').authWithPassword(email,d.password);
+  location.href=pb.authStore.record.role==='admin'?'admin.html':'dashboard.html';
+ }catch(x){
+  busy(false);
+  const m=Object.values(x.response?.data||{}).map(v=>v.message).join(' ');
+  showErr(m||(x.status===0?'Can\u2019t reach the server. Check your internet connection and try again.':(mode==='login'&&x.status===400?'Incorrect email or password.':x.message)));
+ }
+};
+draw();
+document.getElementById('yr').textContent=new Date().getFullYear();
+})();
+</script></body></html>

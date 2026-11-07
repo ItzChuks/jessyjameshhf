@@ -1,0 +1,129 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><script src="https://cdn.tailwindcss.com/3.4.17"></script><script src="theme.js"></script><script src="https://cdn.jsdelivr.net/npm/pocketbase@0.26.8/dist/pocketbase.umd.js"></script><script src="mock.js"></script><script src="pdf.js"></script><script src="app.js"></script><title>Admin – Jessy James Helping Hands Foundation</title></head>
+<body class="bg-slate-50 text-slate-800"><div id="app"></div>
+<script>
+if(guard('admin')){
+const col=c=>pb.collection(c), nm=x=>esc(x?.name||x?.email||'—');
+const ab=(label,fn,cls='border')=>'<button onclick="'+fn+'" class="px-2.5 py-1 text-xs rounded-md '+cls+'">'+label+'</button> ';
+const call=(fn,...a)=>fn+'('+a.map(x=>"'"+x+"'").join(',')+')';
+// Wallet payments confirm themselves; admins only step in for leftovers from the old checkout, which are flagged "REVIEW"
+const act=t=>t.status==='pending'&&!(t.kind==='payment'&&t.ref&&!/^REVIEW/.test(t.note))?ab(t.kind==='payment'?'Confirm':'Mark paid',call('setRec',t.kind+'s',t.id,'status','confirmed'),'bg-emerald-600 text-white')+ab('Reject',call('setRec',t.kind+'s',t.id,'status','rejected'),'border text-red-600'):'';
+window.PLAN_ACTION=p=>'<button onclick="closePlan();planForm(\''+p.id+'\')" class="'+btn+' w-full py-2.5">Edit plan</button>';
+window.setReg=async(id,on)=>{const u=await col('users').getOne(id);
+ const ok=await confirmBox({title:on?'Mark as registered?':'Mark as unregistered?',message:on?(nm(u)+' will be treated as having paid the ₦5,000 t-shirt fee and can request payouts. Only do this if the payment was received.'):(nm(u)+' will not be able to request payouts until the t-shirt fee is paid.'),confirmText:on?'Mark registered':'Mark unregistered',danger:!on});
+ if(!ok)return;
+ try{await col('users').update(id,{shirt_paid:on,shirt_paid_at:on?new Date().toISOString().replace('T',' '):''});refresh()}catch(e){toast(e.message,1)}};
+const regBadge=u=>u.role==='admin'?badge('active').replace('Active','Admin'):u.shirt_paid?badge('confirmed').replace('Confirmed','Registered'):badge('pending').replace('Pending','Unregistered');
+const regBtn=u=>u.role==='admin'?'':u.shirt_paid?ab('Mark unregistered','setReg(\''+u.id+'\',false)','border text-red-600'):ab('Mark registered','setReg(\''+u.id+'\',true)','bg-emerald-600 text-white');
+const WK={topup:'Top-up',contribution:'Contribution',join:'Joining fee',catchup:'Catch-up',shirt:'T-shirt fee',clearance:'Clearance fee'};
+// fallback for a transfer whose webhook never arrived: credit by hand with the bank reference (the same reference can only be credited once)
+window.creditWallet=id=>modal('Credit wallet',fld('Amount (₦)','amount','','number','required min="1" step="1"')+fld('Bank transfer reference','ref','','text','required')+'<p class="text-xs text-slate-500">Use only for a transfer that reached the member\'s account number but was not added automatically. Plans waiting for money are paid straight away.</p>',
+ async d=>{await pb.send('/api/jjhhf/wallet/credit',{method:'POST',body:{user:id,amount:+d.amount,ref:d.ref}});toast('Wallet credited');refresh()},'Credit wallet');
+window.setRec=async(c,id,f,v)=>{try{await col(c).update(id,{[f]:v});refresh()}catch(e){toast(e.message,1)}};
+window.delPlans=async ids=>{ids=[].concat(ids);const pl=window._pln||{},one=ids.length===1;
+ const ok=await confirmBox({title:one?'Delete this plan?':'Delete '+ids.length+' plans?',message:'This cannot be undone. A plan that members have already joined cannot be deleted; hide it instead (Edit plan, then set Active to false).',confirmText:one?'Delete plan':'Delete '+ids.length+' plans',danger:true,items:ids.map(id=>pl[id]?.name||'Plan')});
+ if(!ok)return;
+ const rs=await Promise.allSettled(ids.map(id=>col('plans').delete(id))),done=ids.filter((id,k)=>rs[k].status==='fulfilled'),bad=ids.length-done.length;
+ done.forEach(id=>window._sel?.delete(id));
+ toast((done.length?'Deleted '+done.length+' plan'+(done.length===1?'':'s')+'. ':'')+(bad?bad+' could not be deleted, most likely because members have joined '+(bad===1?'it':'them')+'. Hide '+(bad===1?'it':'them')+' instead.':''),bad>0,bad?7000:3000);
+ refresh()};
+// bulk selection on the plans page
+window.togSel=(id,on)=>{on?window._sel.add(id):window._sel.delete(id);document.querySelectorAll('[data-sel]').forEach(c=>c.checked=window._sel.has(c.dataset.sel));bulk()};
+window.clearSel=()=>{window._sel.clear();document.querySelectorAll('[data-sel]').forEach(c=>c.checked=false);bulk()};
+window.bulk=()=>{const S=window._sel||(window._sel=new Set()),vis=(window._pl||[]).map(p=>p.id),n=S.size,all=vis.length>0&&vis.every(id=>S.has(id));
+ const bk=$('#bk'),fl=$('#bkf');if(!bk)return;
+ bk.innerHTML='<label class="inline-flex items-center gap-2 cursor-pointer text-sm text-slate-600"><input type="checkbox" id="sa" class="w-4 h-4 rounded accent-emerald-700" '+(all?'checked':'')+(vis.length?'':' disabled')+'> Select all'+(vis.length?' ('+vis.length+' shown)':'')+'</label>';
+ const sa=$('#sa');sa.indeterminate=!all&&vis.some(id=>S.has(id));
+ sa.onchange=e=>{vis.forEach(id=>e.target.checked?S.add(id):S.delete(id));document.querySelectorAll('[data-sel]').forEach(c=>c.checked=S.has(c.dataset.sel));bulk()};
+ fl.innerHTML=n?'<div class="fixed bottom-4 sm:bottom-6 left-1/2 -translate-x-1/2 z-40 w-[calc(100%-2rem)] sm:w-auto bg-slate-900 text-white rounded-xl shadow-2xl px-4 py-3 flex items-center justify-between gap-4 text-sm"><span><b>'+n+'</b> selected</span><span class="flex items-center gap-3"><button onclick="clearSel()" class="text-slate-300 hover:text-white font-medium">Clear</button><button onclick="delPlans([...window._sel])" class="px-3.5 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white font-medium">Delete selected</button></span></div>':''};
+window.planForm=async id=>{
+ const p=id?await col('plans').getOne(id):{category:'cash',frequency:'daily',active:true}, m0=id?monthsOf(p):3;
+ const UN={daily:'days',weekly:'weeks',monthly:'months'}, WK=[12,13,26,50,52], pbtn='px-2.5 py-1 text-xs rounded-full border bg-white text-slate-600 hover:bg-slate-100';
+ modal(id?'Edit plan':'Add plan',
+  fld('Name','name',p.name,'text','required')+sel('Category','category',['cash','grocery','foodie'],p.category)+sel('Frequency','frequency',['daily','weekly','monthly'],p.frequency)+fld('Amount per payment (₦)','amount',p.amount,'number','required min="1"')
+  +'<div id="sn" class="hidden rounded-lg border bg-slate-50 p-3 text-sm text-slate-600"></div><div id="mbx"><label class="block text-sm"><span class="text-slate-600">Saving period (months)</span><input name="months" type="number" min="1" step="1" value="'+m0+'" required class="'+inp+' mt-1"></label>'
+  +'<div class="flex flex-wrap gap-1.5 mt-2">'+[1,2,3,6,12].map(n=>'<button type="button" data-m="'+n+'" class="'+pbtn+'">'+n+' month'+(n>1?'s':'')+'</button>').join('')+'</div></div>'
+  +'<div id="dbx"><label class="block text-sm"><span class="text-slate-600">Number of <span id="pu">payments</span> the member pays for</span><input name="duration" type="number" min="1" step="1" value="'+(id?p.duration:paymentsFor(m0,p.frequency))+'" required class="'+inp+' mt-1"></label>'
+  +'<div id="dp" class="flex flex-wrap items-center gap-1.5 mt-2"></div><p id="pm" class="text-xs text-slate-500 mt-2"></p></div>'
+  +fld('Payout value (₦)','payout',p.payout,'number')+fld('Description / items','description',p.description)+sel('Active','active',['true','false'],String(p.active)),
+  d=>{const mo=parseInt(d.months),f=d.frequency,amount=Number(d.amount),n=parseInt(d.duration);
+   if(!(mo>=1))throw new Error('Enter a saving period of at least 1 month.');
+   if(!(n>=1))throw new Error('Enter the number of '+(UN[f]||'payments')+' (at least 1).');
+   const body={name:d.name,category:d.category,frequency:f,amount,months:mo,duration:n,payout:Number(d.payout)||amount*n,description:d.description,active:d.active==='true'};
+   return id?col('plans').update(id,body):col('plans').create(body)});
+ const F=n=>$('[name="'+n+'"]'), box=$('#pm'), dp=$('#dp');
+ // The number of payments follows the saving period until the admin picks or types their own (e.g. 12 or 13 weeks, 50 or 52 weeks).
+ let manual=id?p.duration!==paymentsFor(m0,p.frequency):false;
+ let custom=id?p.payout!==p.amount*p.duration:false;   // payout value follows amount x payments until the admin types their own
+ const presets=()=>{const f=F('frequency').value;$('#pu').textContent=UN[f]||'payments';
+  dp.innerHTML=f==='weekly'?WK.map(n=>'<button type="button" data-d="'+n+'" class="'+pbtn+'">'+n+' weeks</button>').join('')+'<span class="text-xs text-slate-400">or type your own</span>':''};
+ const calc=()=>{const mo=parseInt(F('months').value)||0,f=F('frequency').value,a=+F('amount').value||0;
+  // Cash and Foodie plans run on the fixed 1 January to 30 November season: the number of payments follows from the frequency
+  const sea=['cash','foodie'].includes(F('category').value);
+  $('#mbx').classList.toggle('hidden',sea);$('#dbx').classList.toggle('hidden',sea);$('#sn').classList.toggle('hidden',!sea);
+  if(sea){const y=seasonYear(f,new Date()),n=seasonCount(f,y);F('months').value=11;F('duration').value=n;
+   $('#sn').innerHTML='<b>Fixed season: 1 January to 30 November.</b> Members pay for <b>'+n+' '+(UN[f]||'payments')+'</b> in the '+y+' season'+(a?' (<b>'+naira(a*n)+'</b> in total, which is also the payout)':'')+'. Someone who joins mid-season pays the contributions already due since 1 January, together with the joining fee.';
+   if(!custom)F('payout').value=a?a*n:'';return}
+  if(!manual&&mo>=1)F('duration').value=paymentsFor(mo,f);
+  const n=parseInt(F('duration').value)||0, u=UN[f]||'payments';
+  box.innerHTML=n>=1?(mo>=1?'<b>'+mo+' month'+(mo===1?'':'s')+'</b> · ':'')+'the member pays for <b>'+n+' '+(n===1?u.replace(/s$/,''):u)+'</b>'+(a?' · <b>'+naira(a*n)+'</b> in total':''):'Enter the number of '+u+'.';
+  dp.querySelectorAll('[data-d]').forEach(b=>{const on=+b.dataset.d===n;b.classList.toggle('!bg-emerald-800',on);b.classList.toggle('!text-white',on)});
+  if(!custom)F('payout').value=a&&n>=1?a*n:''};
+ const recompute=()=>{manual=false;calc()};
+ F('months').addEventListener('input',recompute);
+ F('category').addEventListener('change',recompute);
+ F('frequency').addEventListener('change',()=>{presets();recompute()});
+ F('amount').addEventListener('input',calc);
+ F('duration').addEventListener('input',()=>{manual=true;calc()});
+ F('payout').addEventListener('input',()=>custom=true);
+ document.querySelectorAll('[data-m]').forEach(b=>b.onclick=()=>{F('months').value=b.dataset.m;recompute()});
+ dp.onclick=e=>{const b=e.target.closest('[data-d]');if(b){F('duration').value=b.dataset.d;manual=true;calc()}};
+ presets();calc()};
+window.seed=async()=>{const P=[];
+ [['Grocery Plan 1',250,'50kg Rice, 5L Groundnut Oil, 1 Carton of Indomitable'],['Grocery Plan 2',500,'2 Bags of 50kg Rice, 10kg Semo, 5L Groundnut Oil, 1 Carton of Indomitable, 2 Packets of Knorr Cubes'],['Grocery Plan 3',800,'3 Bags of 50kg Rice, 5L Groundnut Oil, 3 Cartons of Indomitable, 2 Cartons of Spaghetti, 2 Packets of Knorr Cubes'],['Grocery Plan 4',1000,'4 Bags of 50kg Rice, 10kg Groundnut Oil, 10kg Semo, 4 Cartons of Indomitable, 1 Carton of Spaghetti']].forEach(([n,a,d])=>P.push({name:n,category:'grocery',frequency:'daily',amount:a,duration:365,payout:a*365,description:d,active:true}));
+ [['daily',365,[100,200,300,400,500,1000,1500,2000,2500,3000]],['weekly',53,[500,1000,1500,2000,2500,3000]],['monthly',12,[2000,2500,3000,5000,10000,15000,20000]]].forEach(([f,n,l])=>l.forEach(a=>P.push({name:cap(f)+' Savings '+naira(a),category:'cash',frequency:f,amount:a,duration:n,payout:a*n,description:'',active:true})));
+ P.forEach(p=>p.months=12);
+ try{for(const p of P)await col('plans').create(p);toast('Default plans added');refresh()}catch(e){toast(e.message,1)}};
+
+layout({brand:BRAND_SHORT,sub:'Admin panel',alias:{user:'users'},live:['users','plans','subscriptions','payments','payouts','fees','wallet_txs'],badges:async()=>{const [a,b]=await Promise.all([col('payments').getList(1,1,{filter:'status="pending" && (tx_ref="" || note~"REVIEW")'}),col('payouts').getList(1,1,{filter:'status="pending"'})]);return{payments:a.totalItems,payouts:b.totalItems}},onLive:(c,e)=>{if(e.action!=='create')return;if(c==='payments'&&e.record.status==='pending'&&!e.record.tx_ref)toast('New payment awaiting confirmation');if(c==='payouts'&&e.record.status==='pending')toast('New payout request received');if(c==='users')toast('A new member signed up');if(c==='wallet_txs'&&e.record.kind==='topup')toast(naira(e.record.amount)+' topped up into a member wallet')},nav:[['overview','Overview'],['users','Users'],['plans','Plans'],['subs','Contributions'],['payments','Payments'],['wallet','Wallet'],['fees','Fees'],['payouts','Payouts'],['rules','Rules and fees']],views:{
+ async rules(m){m.innerHTML=head('Rules and fees','The rules and fees members are held to. They are also shown on the sign-up page and in the <a href="terms.html" target="_blank" class="text-emerald-800 underline">Terms and Conditions</a>.')+rulesHTML()},
+ async overview(m){const [u,s,pp,pa,pl,fe]=await Promise.all([col('users').getFullList(),col('subscriptions').getList(1,1),col('payments').getList(1,1,{filter:'status="pending"'}),col('payments').getFullList({filter:'status="confirmed"'}),col('plans').getList(1,1),col('fees').getFullList({filter:'status="confirmed"'})]);
+  const held=u.reduce((a,x)=>a+(x.wallet_balance||0),0),mem=u.filter(x=>x.role!=='admin'),reg=mem.filter(x=>x.shirt_paid).length;
+  m.innerHTML=head('Overview','Platform summary.')+(pl.totalItems?'':'<div class="mb-6 bg-amber-50 border border-amber-200 rounded-xl p-5 flex flex-wrap items-center justify-between gap-3 text-sm"><span>No plans exist yet, so users have nothing to join.</span><button onclick="seed()" class="px-4 py-2 rounded-lg bg-emerald-600 text-white">Add default plans</button></div>')+'<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">'+stat('Members',mem.length)+'<a href="#users" onclick="window._uq=\'reg\'" class="block">'+stat('Registered',reg,'Paid the t-shirt fee')+'</a><a href="#users" onclick="window._uq=\'unreg\'" class="block">'+stat('Unregistered',mem.length-reg,'T-shirt fee not paid')+'</a>'+stat('Contributions',s.totalItems)+stat('Pending payments',pp.totalItems)+stat('Confirmed total',naira(pa.reduce((a,p)=>a+p.amount,0)),'Savings + penalties')+stat('Penalties collected',naira(pa.reduce((a,p)=>a+(p.penalty||0),0)),'From late payments')+stat('Fees collected',naira(fe.reduce((a,f)=>a+f.amount,0)),'T-shirt, joining and clearance')+stat('Held in wallets',naira(held),'Members\' unspent balances')+'</div>'},
+ async users(m){const l=await col('users').getFullList({sort:'-created'}),mem=l.filter(u=>u.role!=='admin'),reg=mem.filter(u=>u.shirt_paid).length,q=window._uq||'all';
+  const shown=l.filter(u=>q==='all'||(q==='reg'?u.role!=='admin'&&u.shirt_paid:u.role!=='admin'&&!u.shirt_paid));
+  const tabs='<div class="flex flex-wrap gap-1.5 mb-4">'+[['all','All',l.length],['reg','Registered',reg],['unreg','Unregistered',mem.length-reg]].map(t=>'<button onclick="window._uq=\''+t[0]+'\';refresh()" class="whitespace-nowrap px-3 py-1.5 rounded-full text-sm font-medium border '+(t[0]===q?'bg-emerald-800 text-white border-emerald-800':'bg-white text-slate-600 hover:bg-slate-100')+'">'+t[1]+' <span class="opacity-60">'+t[2]+'</span></button>').join('')+'</div>';
+  m.innerHTML=head('Users',`${mem.length} members: ${reg} registered (paid the ₦5,000 t-shirt fee, needed only for payouts) and ${mem.length-reg} unregistered. Select a member to see their details and transaction history.`)+tabs+table(['Name','Email','Phone','Wallet','Status','Joined',''],shown.map(u=>[ulink(u),esc(u.email),esc(u.phone),naira(u.wallet_balance),regBadge(u),date(u.created),ab('View',`location.hash='user?id=${u.id}'`,'border font-medium')+regBtn(u)+ab(u.role==='admin'?'Make user':'Make admin',call('setRec','users',u.id,'role',u.role==='admin'?'user':'admin'))]))},
+ async user(m,q){const id=q.get('id');if(!id){location.hash='users';return}
+  const f=`user="${id}"`,[u,s,p,o,wt]=await Promise.all([col('users').getOne(id),col('subscriptions').getFullList({filter:f,expand:'plan',sort:'-created'}),col('payments').getFullList({filter:f,expand:'subscription.plan',sort:'-created'}),col('payouts').getFullList({filter:f,expand:'subscription.plan',sort:'-created'}),col('wallet_txs').getList(1,60,{filter:f,sort:'-created'}).then(r=>r.items).catch(()=>[])]);
+  const conf=p.filter(x=>x.status==='confirmed'),pen=conf.reduce((a,x)=>a+(x.penalty||0),0),saved=conf.reduce((a,x)=>a+x.amount-(x.penalty||0),0),saves=sid=>conf.filter(x=>x.subscription===sid).reduce((a,x)=>a+x.amount-(x.penalty||0),0);
+  const kv=(k,v)=>`<div class="flex justify-between gap-4 py-2.5 text-sm"><dt class="text-slate-500 shrink-0">${k}</dt><dd class="font-medium text-slate-900 text-right min-w-0 break-words">${v||'—'}</dd></div>`;
+  m.innerHTML=`<a href="#users" class="inline-flex text-sm text-slate-500 hover:text-slate-800 mb-4">&larr; Back to users</a>
+   <div class="bg-white border rounded-xl p-5 sm:p-6 mb-6">
+    <div class="flex flex-wrap items-center gap-4"><div class="w-14 h-14 rounded-full bg-emerald-800 text-white grid place-items-center text-xl font-semibold shrink-0">${esc((u.name||u.email||'?').trim()[0].toUpperCase())}</div>
+     <div class="min-w-0 flex-1"><h2 class="text-xl font-semibold text-slate-900 break-words">${nm(u)}</h2><p class="text-sm text-slate-500 break-words">${esc(u.email)}</p></div>
+     <div>${ab('Credit wallet',call('creditWallet',u.id),'bg-emerald-600 text-white')}${regBtn(u)}${ab(u.role==='admin'?'Make user':'Make admin',call('setRec','users',u.id,'role',u.role==='admin'?'user':'admin'))}</div></div>
+    <div class="grid sm:grid-cols-2 sm:gap-x-10 mt-4 border-t">
+     <dl class="divide-y">${kv('Phone',u.phone?`<a href="tel:${esc(u.phone)}" class="text-emerald-800 hover:underline">${esc(u.phone)}</a>`:'')}${kv('Country',esc(u.country))}${kv('Email',esc(u.email))}</dl>
+     <dl class="divide-y border-t sm:border-t-0">${kv('Role',u.role==='admin'?'Administrator':'Member')}${kv('Registration',u.role==='admin'?'':regBadge(u)+(u.shirt_paid&&u.shirt_paid_at?' <span class="text-xs font-normal text-slate-500">since '+date(u.shirt_paid_at)+'</span>':''))}${kv('Joined',date(u.created))}${kv('Account ID',esc(u.id))}</dl></div></div>
+   <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-8">${stat('Plans joined',s.length)}${stat('Confirmed savings',naira(saved),'Excluding penalties')}${stat('Penalties paid',naira(pen),'From late payments')}${stat('Wallet balance',naira(u.wallet_balance),u.va_number?esc(u.va_bank)+' · '+esc(u.va_number):'No account number yet')}</div>
+   <h2 class="text-sm font-semibold mb-3">Plans</h2>${table(['Plan','Contribution','Progress','Status','Started',''],s.map(x=>{const pl=x.expand?.plan||{},t=(pl.amount||0)*(pl.frequency?sched(x,pl).n:0),v=saves(x.id);return[esc(pl.name),naira(pl.amount)+' '+(pl.frequency||''),`${naira(v)} of ${naira(t)} (${Math.min(100,Math.round(v/t*100))||0}%)`,badge(x.status),date(x.created),x.status==='active'?ab('Complete',call('setRec','subscriptions',x.id,'status','completed'))+ab('Cancel',call('setRec','subscriptions',x.id,'status','cancelled'),'border text-red-600'):'']}))}
+   <h2 class="text-sm font-semibold mt-8 mb-3">Wallet history</h2>${table(['Date','Type','Details','Amount','Balance'],wt.map(x=>[date(x.created),WK[x.kind]||x.kind,'<span class="text-xs text-slate-500">'+esc(x.note||'')+'</span>',(x.type==='credit'?'+':'−')+naira(x.amount),naira(x.balance)]))}
+   <h2 class="text-sm font-semibold mt-8 mb-3">Transaction history</h2><div id="th"></div>`;
+  txHistory($('#th'),{key:'user:'+id,cust:u,extra:act,txs:[...p.map(x=>txFrom(x,'payment')),...o.map(x=>txFrom(x,'payout'))].sort((a,b)=>b.at-a.at)})},
+ async plans(m){const l=await col('plans').getFullList({sort:'category,frequency,amount'});window._pln=Object.fromEntries(l.map(p=>[p.id,p]));window._sel=window._sel||new Set();
+[...window._sel].forEach(id=>{if(!window._pln[id])window._sel.delete(id)});
+  m.innerHTML=head('Plans','Search, filter and manage contribution plans. Tick plans to delete several at once.',(l.length?'':'<button onclick="seed()" class="'+btn2+'">Add default plans</button>')+'<button onclick="planForm()" class="'+btn+'">Add plan</button>')+'<div id="bk" class="mb-3"></div><div id="ex"></div><div id="bkf"></div>';
+  explorer($('#ex'),l,{onPaint:()=>bulk(),cols:{heads:['SEL','Name','Type','Frequency','Amount','Period','Payments','Payout','Status',''],row:(p,i)=>['<input type="checkbox" data-sel="'+p.id+'" '+(window._sel.has(p.id)?'checked ':'')+'onchange="togSel(\''+p.id+'\',this.checked)" class="w-4 h-4 rounded accent-emerald-700" aria-label="Select '+esc(p.name)+'">','<button onclick="openPlan('+i+')" class="font-medium text-emerald-800 hover:underline">'+esc(p.name)+'</button>',p.category,p.frequency,naira(p.amount),monthsLabel(p),nPay(p),naira(payoutOf(p)),badge(p.active?'active':'cancelled').replace('Cancelled','Hidden'),ab('Edit','planForm(\''+p.id+'\')')+ab('Delete',call('delPlans',p.id),'border text-red-600')]}});},
+ async subs(m){const l=await col('subscriptions').getFullList({expand:'user,plan',sort:'-created'});
+  m.innerHTML=head('Contributions','All user subscriptions to plans.')+table(['User','Plan','Status','Started',''],l.map(s=>[ulink(s.expand?.user),esc(s.expand?.plan?.name),badge(s.status),date(s.created),s.status==='active'?ab('Complete','setRec(\'subscriptions\',\''+s.id+'\',\'status\',\'completed\')')+ab('Cancel','setRec(\'subscriptions\',\''+s.id+'\',\'status\',\'cancelled\')','border text-red-600'):'']))},
+ async wallet(m){const [l,u]=await Promise.all([col('wallet_txs').getList(1,200,{expand:'user',sort:'-created'}).then(r=>r.items),col('users').getFullList()]);
+  const held=u.reduce((a,x)=>a+(x.wallet_balance||0),0),tops=l.filter(x=>x.kind==='topup');
+  m.innerHTML=head('Wallet','Every top-up, fee and contribution across all member wallets (latest 200).')+'<div class="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 mb-8">'+stat('Held in wallets',naira(held),'Members\' unspent balances')+stat('Members with an account number',u.filter(x=>x.va_number).length,'of '+u.filter(x=>x.role!=='admin').length)+stat('Top-ups shown',naira(tops.reduce((a,x)=>a+x.amount,0)),tops.length+' transfers')+'</div>'+table(['Date','Member','Type','Details','Amount','Balance'],l.map(x=>[date(x.created),ulink(x.expand?.user),WK[x.kind]||x.kind,'<span class="text-xs text-slate-500">'+esc(x.note||'')+'</span>','<span class="'+(x.type==='credit'?'text-emerald-800':'')+' font-medium">'+(x.type==='credit'?'+':'−')+naira(x.amount)+'</span>',naira(x.balance)]))},
+ async fees(m){const l=await col('fees').getFullList({expand:'user,plan',sort:'-created'}),tot=l.filter(x=>x.status==='confirmed').reduce((a,x)=>a+x.amount,0);
+  m.innerHTML=head('Fees',`T-shirt registration, joining and payout clearance fees. Confirmed total: ${naira(tot)}.`)+table(['Date','Member','Fee','Plan','Amount','Note','Status'],l.map(x=>[date(x.created),ulink(x.expand?.user),FEE_LABEL[x.type]||x.type,esc(x.expand?.plan?.name||'—'),naira(x.amount),/^REVIEW/.test(x.note)?esc(x.note):'—',badge(x.status)]))},
+ async payouts(m){const l=await col('payouts').getFullList({expand:'user,subscription.plan',sort:'-created'});m.innerHTML=head('Payout requests','Review and mark payouts as paid.')+table(['Date','User','Plan','Details','Status',''],l.map(p=>[date(p.created),ulink(p.expand?.user),esc(p.expand?.subscription?.expand?.plan?.name),esc(p.note),badge(p.status),p.status==='pending'?ab('Mark paid','setRec(\'payouts\',\''+p.id+'\',\'status\',\'confirmed\')','bg-emerald-600 text-white')+ab('Reject','setRec(\'payouts\',\''+p.id+'\',\'status\',\'rejected\')','border text-red-600'):'']))},
+ async payments(m){const l=await col('payments').getFullList({expand:'user,subscription.plan',sort:'-created'});
+  m.innerHTML=head('Payments','Contributions are taken from member wallets automatically. Filter by date and download invoices or a statement as PDF.')+'<div id="th"></div>';
+  txHistory($('#th'),{key:'admin-pay',showUser:true,kinds:['payment'],extra:act,txs:l.map(x=>txFrom(x,'payment'))})}
+}});}
+</script></body></html>

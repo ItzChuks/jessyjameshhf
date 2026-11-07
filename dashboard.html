@@ -1,0 +1,151 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><script src="https://cdn.tailwindcss.com/3.4.17"></script><script src="theme.js"></script><script src="https://cdn.jsdelivr.net/npm/pocketbase@0.26.8/dist/pocketbase.umd.js"></script><script src="mock.js"></script><script src="pdf.js"></script><script src="app.js"></script><title>Dashboard – Jessy James Helping Hands Foundation</title></head>
+<body class="bg-slate-50 text-slate-800"><div id="app"></div>
+<script>
+if (guard()) {
+const U = () => pb.authStore.record, uf = () => 'user="' + U().id + '"';
+const planOf = s => s.expand?.plan || {};
+const subs = () => pb.collection('subscriptions').getFullList({ filter: uf(), expand: 'plan', sort: '-created' });
+const pays = () => pb.collection('payments').getFullList({ filter: uf(), expand: 'subscription.plan', sort: '-created' });
+// progress counts savings only: late penalties are fees, not savings
+const sum = (l, s) => l.filter(p => p.status === 'confirmed' && (!s || p.subscription === s)).reduce((a, p) => a + p.amount - (p.penalty || 0), 0);
+const bar = pc => `<div class="h-1.5 bg-slate-100 rounded-full mt-3"><div class="h-1.5 bg-emerald-700 rounded-full" style="width:${pc}%"></div></div>`;
+const dueLine = (st, f) => !st.left ? '<span class="text-emerald-800 font-medium">Fully paid</span>'
+  : st.overdue ? `<span class="text-red-600 font-medium">${plural(st.overdue, f)} overdue · ${naira(st.overdue * st.A * RULES.lateMultiplier)} due now (includes ${naira(st.overdue * st.pen)} penalty)</span>`
+  : `Next payment due <b class="font-medium text-slate-700">${fmtDue(f, st.next)}</b>`;
+
+window.PLAN_ACTION = p => `<button onclick="closePlan();join('${p.id}')" class="${btn} w-full py-2.5">Join this plan</button>`;
+
+// wallet helpers: which of my plans are ready / waiting for a top-up
+const waits = (s, p, bal) => s.filter(x => x.status === 'active').map(x => { const pl = planOf(x), st = planState(x, pl, p); return { x, pl, st, w: walletStatus(x, pl, st, bal) }; });
+const waitBanner = (ws, bal) => {
+  const w = ws.filter(i => i.w.s === 'waiting'); if (!w.length) return '';
+  const need = w.reduce((a, i) => a + i.w.cost, 0) - bal;
+  return `<div class="mb-6 rounded-xl border bg-red-50 border-red-200 text-red-700 p-4 text-sm flex flex-wrap items-center justify-between gap-3"><p><b>${w.length === 1 ? '1 plan is' : w.length + ' plans are'} waiting for money:</b> ${w.map(i => esc(i.pl.name)).join(', ')}. Add at least <b>${naira(need)}</b> to your wallet and ${w.length === 1 ? 'it is' : 'they are'} paid automatically.</p><a href="#wallet" class="${btn}">Top up wallet</a></div>`;
+};
+
+// Joining a plan. The joining fee (and, on a Cash/Foodie plan joined mid-season, the catch-up since 1 January) is taken from the wallet.
+window.join = async id => {
+  const pl = (window._pl || []).find(p => p.id === id) || await pb.collection('plans').getOne(id).catch(() => null);
+  if (!pl) return toast('That plan could not be found.', 1);
+  const bal = await walletBal(), now = new Date().toISOString(), S = sched({ created: now }, pl), c = catchupCount({ created: now }, pl), catchup = c * pl.amount, total = FEES.join + catchup, short = total - bal;
+  const row = (k, v, cls = '') => `<div class="flex justify-between gap-4 py-2 text-sm ${cls}"><dt class="text-slate-500">${k}</dt><dd class="font-medium text-slate-900 text-right">${v}</dd></div>`;
+  const season = isSeasonal(pl) ? `<div class="rounded-lg border bg-slate-50 p-3 text-sm text-slate-600">${pl.category === 'cash' ? 'Cash' : 'Foodie'} savings run from <b>1 January to 30 November</b>${S.season > new Date().getFullYear() ? ` (the ${S.season} season, starting 1 January ${S.season})` : ''}. ${c ? `You are joining part-way, so the <b>${c}</b> contribution${c === 1 ? '' : 's'} already due since the season began (<b>${naira(catchup)}</b>) are collected now. No penalty applies to them.` : 'Nothing has fallen due yet, so there is no catch-up to pay.'}</div>` : '';
+  modal('Join ' + esc(pl.name),
+    `<dl class="divide-y border rounded-lg px-3">${row('Contribution', naira(pl.amount) + ' / ' + FQ[pl.frequency])}${row('Number of payments', S.n + ' ' + FQ[pl.frequency] + (S.n === 1 ? '' : 's'))}${row('Total payout', naira(payoutOf(pl)))}</dl>`
+    + season
+    + `<dl class="divide-y border rounded-lg px-3">${row('Joining fee', naira(FEES.join))}${c ? row('Catch-up (' + c + ' × ' + naira(pl.amount) + ')', naira(catchup)) : ''}${row('Total from your wallet', naira(total), 'font-semibold')}${row('Your wallet', naira(bal))}</dl>`
+    + (short > 0 ? `<div class="rounded-lg border bg-red-50 border-red-200 text-red-700 p-3 text-sm">Your wallet is short by <b>${naira(short)}</b>. Top it up first, then come back to join.</div>` : `<div class="rounded-lg border bg-emerald-50 border-emerald-200 text-emerald-800 p-3 text-sm">After joining, your wallet will hold <b>${naira(bal - total)}</b>. Your contributions are then taken from the wallet automatically.</div>`)
+    + '<p class="text-xs text-slate-500">By joining you agree to the <a href="terms.html" target="_blank" class="text-emerald-800 underline">Terms and Conditions</a>.</p>',
+    async () => {
+      if (short > 0) { location.hash = 'wallet'; return; }
+      const r = await payFee({ type: 'join', plan: id });
+      toast(r.instalments ? `Plan joined. ${naira(total)} taken from your wallet (includes ${r.instalments} catch-up payment${r.instalments === 1 ? '' : 's'}).` : 'Plan joined. The joining fee was taken from your wallet.', 0, 6000);
+      location.hash = 'mine';
+    },
+    short > 0 ? 'Go to wallet to top up' : 'Pay ' + naira(total) + ' and join');
+};
+
+// Requesting a payout. Three things are checked first (the server enforces them as well):
+//   1) another plan must be actively running, 2) the one-time ₦5,000 t-shirt fee must be paid, 3) then the ₦3,000 clearance fee is taken from the wallet.
+window.payout = async sid => {
+  let list, bal; try { [list, bal] = await Promise.all([subs(), walletBal()]); } catch (x) { return toast(x.message, 1); }
+  if (!runningOthers(list, sid, planOf).length) return toast(PAYOUT_NEEDS_PLAN, 1, 7000);
+  const bar2 = need => bal < need ? `<div class="rounded-lg border bg-red-50 border-red-200 text-red-700 p-3 text-sm">Your wallet has ${naira(bal)}. Top up at least <b>${naira(need - bal)}</b> first.</div>` : `<p class="text-xs text-slate-500">Your wallet: ${naira(bal)}</p>`;
+  if (!U().shirt_paid) return modal('Pay the t-shirt fee first',
+    `<div class="rounded-lg border bg-amber-50 border-amber-200 text-amber-800 p-3 text-sm">Before your first payout you pay the one-time <b>${naira(FEES.shirt)}</b> t-shirt fee, taken from your wallet. You pay it once only, and only now because you are requesting a payout.</div>${bar2(FEES.shirt)}<p class="text-sm text-slate-600">When it is paid you will be a registered member. Then come back to <b>My contributions</b> and request this payout (a ${naira(FEES.clearance)} clearance fee applies to the request).</p>`,
+    async () => { if (bal < FEES.shirt) { location.hash = 'wallet'; return; } await payFee({ type: 'shirt' }); await pb.collection('users').authRefresh().catch(() => { }); toast('T-shirt fee paid. You can now request your payout.'); },
+    bal < FEES.shirt ? 'Go to wallet to top up' : 'Pay ' + naira(FEES.shirt) + ' from wallet');
+  modal('Request payout',
+    `<div class="rounded-lg border bg-amber-50 border-amber-200 text-amber-800 p-3 text-sm">A clearance fee of <b>${naira(FEES.clearance)}</b> is taken from your wallet with every payout request. Your request is sent to the admin as soon as it is paid.</div>${bar2(FEES.clearance)}` + fld('Delivery or bank details', 'note', '', 'text', 'required'),
+    async d => { if (bal < FEES.clearance) { location.hash = 'wallet'; return; } await payFee({ type: 'clearance', subscription: sid, details: d.note }); toast('Payout requested'); },
+    bal < FEES.clearance ? 'Go to wallet to top up' : 'Pay ' + naira(FEES.clearance) + ' and request payout');
+};
+
+const KIND = { topup: 'Top-up', contribution: 'Contribution', join: 'Joining fee', catchup: 'Catch-up', shirt: 'T-shirt fee', clearance: 'Clearance fee' };
+const txRows = l => l.map(x => [date(x.created) + ' <span class="text-slate-400 text-xs">' + new Date(parseTs(x.created)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + '</span>', KIND[x.kind] || x.kind, `<span class="text-xs text-slate-500">${esc(x.note || '')}</span>`, `<span class="font-medium ${x.type === 'credit' ? 'text-emerald-800' : 'text-slate-800'}">${x.type === 'credit' ? '+' : '−'}${naira(x.amount)}</span>`, naira(x.balance)]);
+
+const startApp = () => layout({ brand: BRAND_SHORT, nav: [['overview', 'Overview'], ['wallet', 'Wallet'], ['plans', 'Browse plans'], ['mine', 'My contributions'], ['payments', 'Transaction history'], ['fees', 'Fees paid'], ['payouts', 'Payouts'], ['rules', 'Rules and fees'], ['profile', 'Profile']], views: {
+  async overview(m) {
+    const [s, p, bal] = await Promise.all([subs(), pays(), walletBal()]), act = s.filter(x => x.status === 'active');
+    m.innerHTML = head('Welcome back, ' + esc((U().name || 'there').split(' ')[0]), 'Your wallet and your savings at a glance.', `<a href="#plans" class="${btn}">Browse plans</a>`)
+      + (U().role !== 'admin' && !U().shirt_paid ? `<div class="mb-6 rounded-xl border bg-amber-50 border-amber-200 text-amber-800 p-4 text-sm">You can browse and join plans freely. The one-time <b>${naira(FEES.shirt)}</b> t-shirt fee is only needed when you request a payout.</div>` : '')
+      + waitBanner(waits(s, p, bal), bal)
+      + '<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-8">' + stat('Wallet balance', naira(bal), '<a href="#wallet" class="text-emerald-800 font-medium">Top up</a>') + stat('Active plans', act.length) + stat('Total contributed', naira(sum(p)), 'Confirmed savings, excluding penalties') + stat('Expected payout', naira(act.reduce((a, x) => a + (payoutOf(planOf(x)) || 0), 0)), 'Across active plans') + '</div>'
+      + '<div class="grid lg:grid-cols-5 gap-6"><div class="lg:col-span-2"><h2 class="text-sm font-semibold mb-3">Active plans</h2>' + (act.length ? '<div class="space-y-3">' + act.map(x => { const pl = planOf(x), t = pl.amount * sched(x, pl).n, pc = Math.min(100, Math.round(sum(p, x.id) / t * 100) || 0); return `<a href="#mine" class="block bg-white border rounded-xl p-4 hover:border-emerald-700"><div class="flex justify-between text-sm"><span class="font-medium">${esc(pl.name)}</span><span class="text-slate-500">${pc}%</span></div>${bar(pc)}<p class="text-xs text-slate-500 mt-2">${dueLine(planState(x, pl, p), pl.frequency)}</p></a>`; }).join('') + '</div>' : `<div class="bg-white border border-dashed rounded-xl p-6 text-sm text-slate-500">You have not joined a plan yet. <a href="#plans" class="text-emerald-800 font-medium">Browse plans</a></div>`) + '</div>'
+      + '<div class="lg:col-span-3"><div class="flex justify-between mb-3"><h2 class="text-sm font-semibold">Recent payments</h2><a href="#payments" class="text-sm text-emerald-800 font-medium">View all</a></div>' + table(['Date', 'Plan', 'Amount', 'Status'], p.slice(0, 5).map(x => [date(x.created), esc(planOf(x.expand?.subscription || {}).name), naira(x.amount), badge(x.status)])) + '</div></div>';
+  },
+  async wallet(m) {
+    const [u, s, p, txs] = await Promise.all([pb.collection('users').getOne(U().id), subs(), pays(), pb.collection('wallet_txs').getList(1, 60, { filter: uf(), sort: '-created' }).then(r => r.items).catch(() => [])]);
+    const bal = u.wallet_balance || 0, ws = waits(s, p, bal), has = !!u.va_number;
+    const acct = has ? `<div class="grid sm:grid-cols-2 gap-3 mt-4"><div class="rounded-lg bg-slate-50 border p-4"><p class="text-xs uppercase tracking-wide text-slate-500">Bank</p><p class="text-lg font-semibold text-slate-900 mt-1">${esc(u.va_bank)}</p></div><div class="rounded-lg bg-slate-50 border p-4"><p class="text-xs uppercase tracking-wide text-slate-500">Account number</p><p class="text-lg font-semibold text-slate-900 mt-1 tracking-wider flex items-center gap-3">${esc(u.va_number)} <button id="cp" class="${btn2} !py-1 !px-2.5 text-xs">Copy</button></p></div></div><p class="text-xs text-slate-500 mt-3">This account number is yours and never changes. Send money to it from any bank app or USSD. It is added to your wallet automatically, usually within a minute, and this page updates by itself.</p>`
+      : `<form id="va" class="mt-4 space-y-3 max-w-sm"><p class="text-sm text-slate-600">Get your own fixed account number. Your bank needs to verify who owns it, so enter your BVN or NIN once. It is sent straight to our payment provider for verification and is <b>not stored</b> by the foundation.</p><div class="grid grid-cols-3 gap-2"><select name="id_type" class="${inp}"><option value="bvn">BVN</option><option value="nin">NIN</option></select><input name="id_number" inputmode="numeric" maxlength="11" pattern="[0-9]{11}" required placeholder="11 digits" class="${inp} col-span-2"></div><button class="${btn}">Get my account number</button></form>`;
+    const dueNow = ws.filter(i => i.w.s !== 'done');
+    m.innerHTML = head('Wallet', 'Add money here. Your plans take their contributions from it automatically.')
+      + waitBanner(ws, bal)
+      + `<div class="grid lg:grid-cols-5 gap-6"><div class="lg:col-span-2 space-y-6"><div class="bg-brand-950 text-white rounded-xl p-6 relative overflow-hidden" style="background-image:radial-gradient(20rem 12rem at 100% 0%,rgba(245,183,42,.25),transparent)"><p class="text-xs uppercase tracking-wide text-brand-200">Wallet balance</p><p class="text-3xl font-semibold mt-2">${naira(bal)}</p></div>`
+      + `<div class="bg-white border rounded-xl p-5"><h2 class="text-sm font-semibold text-slate-900">Add money</h2>${acct}</div></div>`
+      + `<div class="lg:col-span-3 space-y-6">${dueNow.length ? `<div><h2 class="text-sm font-semibold mb-3">What your plans will take</h2>` + table(['Plan', 'Next payment', 'Status'], dueNow.map(i => [esc(i.pl.name), naira(i.st.cost(0)), i.w.s === 'waiting' ? '<span class="text-red-600 font-medium">Waiting for top-up</span>' : i.w.s === 'scheduled' ? 'Taken ' + fmtDay(i.w.at) : '<span class="text-emerald-800 font-medium">Covered</span>'])) + '</div>' : ''}<div><h2 class="text-sm font-semibold mb-3">Wallet history</h2>` + table(['Date', 'Type', 'Details', 'Amount', 'Balance'], txRows(txs)) + '</div></div></div>';
+    $('#cp')?.addEventListener('click', () => { navigator.clipboard?.writeText(u.va_number).then(() => toast('Account number copied'), () => toast(u.va_number)); });
+    if (USE_MOCK) $('#cp')?.parentElement.insertAdjacentHTML('afterend', '<p class="mt-3"><button id="dm" class="' + btn2 + ' !py-1 !px-2.5 text-xs">Demo: simulate a ₦5,000 transfer</button></p>'), $('#dm')?.addEventListener('click', async () => { await pb.send('/api/jjhhf/wallet/demo-topup', { method: 'POST', body: { amount: 5000 } }); });
+    const f = $('#va');
+    if (f) f.onsubmit = async e => {
+      e.preventDefault(); const b = f.querySelector('button'); b.disabled = true; b.textContent = 'Creating your account…';
+      try { await pb.send('/api/jjhhf/wallet/account', { method: 'POST', body: Object.fromEntries(new FormData(f)) }); toast('Your account number is ready.'); refresh(); }
+      catch (x) { toast(x.message, 1, 6000); b.disabled = false; b.textContent = 'Get my account number'; }
+    };
+  },
+  async plans(m) {
+    const l = await pb.collection('plans').getFullList({ filter: 'active=true' });
+    m.innerHTML = head('Browse plans', 'Search, filter and compare every plan, then join. The ' + naira(FEES.join) + ' registration fee is taken from your wallet each time you join a plan.') + '<div id="ex"></div>';
+    explorer($('#ex'), l, { quick: p => `<button onclick="join('${p.id}')" class="${btn} flex-1">Join plan</button>` });
+  },
+  async mine(m) {
+    const [s, p, po, bal] = await Promise.all([subs(), pays(), pb.collection('payouts').getFullList({ filter: uf() }), walletBal()]);
+    m.innerHTML = head('My contributions', 'Your plans are paid from your wallet automatically. Track progress and due dates here.') + waitBanner(waits(s, p, bal), bal) + (s.length ? '<div class="grid md:grid-cols-2 gap-4">' + s.map(x => {
+      const pl = planOf(x), t = pl.amount * sched(x, pl).n, paid = sum(p, x.id), pc = Math.min(100, Math.round(paid / t * 100) || 0), st = planState(x, pl, p), ws = x.status === 'active' ? walletStatus(x, pl, st, bal) : { s: 'done' };
+      // payouts open only once the whole saving period has run its course (and every payment is confirmed)
+      const other = runningOthers(s, x.id, planOf).length > 0, end = termEnd(x, pl), over = Date.now() >= end.getTime(), reqs = po.filter(o => o.subscription === x.id), done = reqs.some(o => o.status === 'confirmed'), asked = reqs.some(o => o.status === 'pending');
+      const payAct = paid < t || x.status === 'cancelled' ? '' : done ? '<span class="text-sm font-medium text-emerald-800 self-center">Paid out</span>'
+        : asked ? '<span class="text-sm font-medium text-amber-800 self-center">Payout requested · awaiting admin</span>'
+        : over && !other ? `<button disabled title="Join another plan to unlock this payout" class="${btn2} opacity-50 cursor-not-allowed">Request payout</button>`
+        : over ? `<button onclick="payout('${x.id}')" class="${btn2}">Request payout</button>`
+        : `<button disabled title="Opens ${fmtDay(end)}" class="${btn2} opacity-50 cursor-not-allowed">Request payout</button>`;
+      const termLine = x.status === 'cancelled' || done ? '' : `<p class="text-xs text-slate-500 mt-1">${over ? 'Saving period complete.' : `Saving period ends <b class="font-medium text-slate-700">${fmtDay(end)}</b>. Payout opens then.`}</p>`
+        + (over && paid >= t && !asked && !other ? `<p class="text-xs text-amber-800 mt-1">To request this payout you need another plan actively running. <a href="#plans" class="underline font-medium">Join a plan</a></p>` : '');
+      return `<div class="bg-white border rounded-xl p-5"><div class="flex justify-between items-start gap-3"><h3 class="font-semibold">${esc(pl.name)}</h3>${badge(x.status)}</div><p class="text-sm text-slate-500 mt-1">${naira(pl.amount)} ${pl.frequency} · ${monthsLabel(pl)} · started ${date(x.created)}</p>${bar(pc)}<p class="text-sm mt-2">${naira(paid)} of ${naira(t)} <span class="text-slate-500">(${pc}%)</span></p><p class="text-xs text-slate-500 mt-1">${st.paid} of ${st.duration} ${FQ[pl.frequency]}s paid</p>${termLine}${x.status === 'active' ? `<p class="text-sm text-slate-500 mt-3">${ws.s === 'waiting' ? `<span class="text-red-600 font-medium">Waiting for top-up: ${naira(ws.cost)} needed, add at least ${naira(ws.short)} to your wallet</span>` : ws.s === 'scheduled' ? `Next payment of <b class="font-medium text-slate-700">${naira(st.cost(0))}</b> is taken from your wallet on <b class="font-medium text-slate-700">${fmtDay(ws.at)}</b> (due ${fmtDue(pl.frequency, st.next)})` : dueLine(st, pl.frequency)}</p>` : ''}<div class="flex flex-wrap gap-2 mt-4">${ws.s === 'waiting' ? `<a href="#wallet" class="${btn}">Top up wallet</a>` : ''}${payAct}</div></div>`;
+    }).join('') + '</div>' : table([], []));
+  },
+  async payments(m) {
+    const [p, o] = await Promise.all([pays(), pb.collection('payouts').getFullList({ filter: uf(), expand: 'subscription.plan', sort: '-created' })]);
+    m.innerHTML = head('Transaction history', 'Every payment and payout. Filter by date and download invoices as PDF.') + '<div id="th"></div>';
+    txHistory($('#th'), { key: 'me', cust: U(), txs: [...p.map(x => txFrom(x, 'payment')), ...o.map(x => txFrom(x, 'payout'))].sort((a, b) => b.at - a.at) });
+  },
+  async fees(m) {
+    const l = await pb.collection('fees').getFullList({ filter: uf(), expand: 'plan', sort: '-created' });
+    m.innerHTML = head('Fees paid', 'Your t-shirt, registration (joining) and payout clearance fees, all paid from your wallet.') + table(['Date', 'Fee', 'Plan', 'Amount', 'Status'], l.map(x => [date(x.created), FEE_LABEL[x.type] || x.type, esc(x.expand?.plan?.name || '—'), naira(x.amount), badge(x.status)]));
+  },
+  async payouts(m) { const l = await pb.collection('payouts').getFullList({ filter: uf(), expand: 'subscription.plan', sort: '-created' }); m.innerHTML = head('Payouts', 'Your payout requests.') + table(['Date', 'Plan', 'Details', 'Status'], l.map(x => [date(x.created), esc(planOf(x.expand?.subscription || {}).name), esc(x.note), badge(x.status)])); },
+  async rules(m) { m.innerHTML = head('Rules and fees', 'Fees, wallet, seasons, due dates and late penalties. These are part of the <a href="terms.html" target="_blank" class="text-emerald-800 underline">Terms and Conditions</a>.') + rulesHTML(); },
+  async profile(m) {
+    const u = U(); m.innerHTML = head('Profile', 'Update your details.') + `<form id="pf2" class="bg-white border rounded-xl p-6 max-w-md space-y-3">${fld('Full name', 'name', u.name)}${fld('Country', 'country', u.country)}${fld('Phone', 'phone', u.phone)}<button class="${btn}">Save changes</button></form>`;
+    $('#pf2').onsubmit = async e => { e.preventDefault(); try { await pb.collection('users').update(u.id, Object.fromEntries(new FormData(e.target))); toast('Saved'); } catch (x) { toast(x.message, 1); } };
+  }
+}, support: true, chip: async () => naira(await walletBal()), live: ['plans', 'subscriptions', 'payments', 'payouts', 'fees', 'wallet_txs'], onLive: (c, e) => {
+  if (c === 'wallet_txs' && e.action === 'create') {
+    const r = e.record;
+    if (r.kind === 'topup') toast(naira(r.amount) + ' received in your wallet.', 0, 6000);
+    else if (r.kind === 'contribution') toast(naira(r.amount) + ' taken from your wallet. ' + (r.note || ''), 0, 5000);
+    return;
+  }
+  if (e.action !== 'update' || e.record.status === 'pending') return;
+  if (c === 'payments') toast('Your payment of ' + naira(e.record.amount) + ' was ' + e.record.status + '.', e.record.status === 'rejected');
+  if (c === 'fees') toast('Your ' + (FEE_LABEL[e.record.type] || 'fee').toLowerCase() + ' payment of ' + naira(e.record.amount) + ' was ' + e.record.status + '.', e.record.status === 'rejected');
+  if (c === 'payouts') toast('Your payout request was ' + (e.record.status === 'confirmed' ? 'approved' : e.record.status) + '.', e.record.status === 'rejected');
+} });
+
+(async () => {
+  try { await pb.collection('users').authRefresh(); } catch (x) { }   // picks up a freshly confirmed registration
+  startApp();   // every member can use the dashboard; the t-shirt fee is only asked for when requesting a payout
+})();
+}
+</script></body></html>
