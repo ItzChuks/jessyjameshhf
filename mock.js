@@ -87,6 +87,11 @@ function createMockPB() {
   const send = async (path, o = {}) => {
     const b = o.body || {};
     const me = db.users.find(u => u.id === aid), NEED = 'Please pay the one-time ₦5,000 t-shirt fee before you request a payout.', n = x => '₦' + Number(x).toLocaleString();
+    if (path.endsWith('/admin/stats')) {                 // same totals the real server works out with SQL
+      const U = db.users, M = U.filter(u => u.role !== 'admin'), P = db.payments, sum = (l, f) => l.reduce((x, r) => x + (+r[f] || 0), 0), conf = P.filter(p => p.status === 'confirmed'), tops = (db.wallet_txs || []).filter(t => t.kind === 'topup');
+      const reg = M.filter(u => u.shirt_paid).length;
+      return { users: U.length, members: M.length, registered: reg, unregistered: M.length - reg, withAccount: M.filter(u => u.va_number).length, admins: U.length - M.length, held: sum(U, 'wallet_balance'), subscriptions: db.subscriptions.length, activeSubscriptions: db.subscriptions.filter(x => x.status === 'active').length, pendingPayments: P.filter(p => p.status === 'pending').length, confirmedTotal: sum(conf, 'amount'), penalties: sum(conf, 'penalty'), fees: sum((db.fees || []).filter(f => f.status === 'confirmed'), 'amount'), pendingPayouts: db.payouts.filter(p => p.status === 'pending').length, plans: db.plans.length, topups: tops.length, topupTotal: sum(tops, 'amount') };
+    }
     if (path.endsWith('/wallet/account')) {
       if (!/^\d{11}$/.test(String(b.id_number || ''))) throw new Error('Enter your 11-digit ' + String(b.id_type || 'bvn').toUpperCase() + '.');
       if (!me.va_number) { me.va_number = '9' + Math.floor(Math.random() * 1e9).toString().padStart(9, '0'); me.va_bank = 'Demo Bank'; me.va_ref = 'JJHHF-VA-' + me.id; save(); }
@@ -127,5 +132,6 @@ function createMockPB() {
     }
     return { status: 'confirmed' };
   };
-  return { collection: col, authStore, send };
+  const filter = (expr, params = {}) => expr.replace(/\{:(\w+)\}/g, (_, k) => JSON.stringify(String(params[k] ?? '')));   // same as pb.filter (the demo ignores complex filters)
+  return { collection: col, authStore, send, filter };
 }

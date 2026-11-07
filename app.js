@@ -1,5 +1,5 @@
 // ===== CONFIG (edit these) =====
-const PB_URL = 'https://jessyjameshhf-production.up.railway.app/';   // your PocketBase on Railway (no trailing slash)
+const PB_URL = 'https://YOUR-POCKETBASE-SERVICE.up.railway.app';   // your PocketBase on Railway (no trailing slash)
 const USE_MOCK = false; // false = real PocketBase (default). true = offline demo using localStorage + mock.js.
 const BRAND = 'Jessy James Helping Hands Foundation';   // full name (invoices, terms, page titles)
 const BRAND_SHORT = 'JJHHF';                            // short name (sidebar, small screens)
@@ -254,6 +254,29 @@ const table = (heads, rows) => {
   }).join('')}</div>`;
   return desk + cards;
 };
+// ===== server-side paging: only one page of records is downloaded at a time =====
+// pagedTable(el, { col, heads, row, filter, sort, expand, per, key }) draws a table plus Previous/Next and re-draws only itself.
+// The page number survives live refreshes (window._pg[key]) and is forgotten when you move to another page of the app.
+const pgBtn = 'px-3 py-1.5 rounded-lg border bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-white';
+async function pagedTable(el, o) {
+  const { col, heads, row, filter = '', sort = '-created', expand = '', per = 50, key = col, empty = '' } = o;
+  window._pg = window._pg || {};
+  let page = window._pg[key] || 1, r;
+  r = await pb.collection(col).getList(page, per, { filter, sort, ...(expand ? { expand } : {}) });
+  const pages = Math.max(1, Math.ceil(r.totalItems / per));
+  if (page > pages && r.totalItems) { window._pg[key] = pages; return pagedTable(el, o); }
+  const from = r.totalItems ? (page - 1) * per + 1 : 0, to = Math.min(page * per, r.totalItems);
+  el.innerHTML = (r.items.length || !empty ? table(heads, r.items.map(row)) : empty)
+    + (r.totalItems > per ? `<div class="flex flex-wrap items-center justify-between gap-3 mt-4 text-sm text-slate-500"><span>Showing <b class="text-slate-700">${from.toLocaleString()}–${to.toLocaleString()}</b> of <b class="text-slate-700">${r.totalItems.toLocaleString()}</b></span><span class="flex items-center gap-2"><button data-pg="${page - 1}" ${page > 1 ? '' : 'disabled'} class="${pgBtn}">← Previous</button><span>Page ${page} of ${pages.toLocaleString()}</span><button data-pg="${page + 1}" ${page < pages ? '' : 'disabled'} class="${pgBtn}">Next →</button></span></div>` : '');
+  el.querySelectorAll('[data-pg]').forEach(b => b.onclick = () => { window._pg[key] = +b.dataset.pg; pagedTable(el, o).then(() => el.scrollIntoView({ block: 'start', behavior: 'smooth' })); });
+  return r;
+}
+// a search box that re-runs fn (debounced) without re-drawing the whole page, so typing is never interrupted
+const searchBox = (id, val, ph) => `<div class="relative flex-1 min-w-[220px]"><span class="absolute left-3 top-2.5 text-slate-400">${ic(IC.search)}</span><input id="${id}" value="${esc(val || '')}" placeholder="${ph}" class="${inp} pl-10"></div>`;
+const onSearch = (id, fn) => { let t; const el = $('#' + id); if (el) el.oninput = () => { clearTimeout(t); t = setTimeout(() => fn(el.value.trim()), 350); }; };
+// Lagos calendar day "YYYY-MM-DD" -> database timestamp of its first moment (for date filters)
+const dayStartTs = iso => { const [y, m, d] = iso.split('-').map(Number); return fromL(y, m - 1, d).toISOString().replace('T', ' '); };
+
 const fld = (label, name, val = '', type = 'text', extra = '') => `<label class="block text-sm"><span class="text-slate-600">${label}</span><input name="${name}" type="${type}" value="${esc(val)}" ${extra} class="${inp} mt-1"></label>`;
 const sel = (label, name, opts, val) => `<label class="block text-sm"><span class="text-slate-600">${label}</span><select name="${name}" class="${inp} mt-1">${opts.map(o => `<option ${o == val ? 'selected' : ''}>${o}</option>`).join('')}</select></label>`;
 
@@ -352,7 +375,8 @@ window.openPlan = i => {
 };
 
 // ===== app shell: sidebar, top bar with global plan search, keyboard shortcuts =====
-function layout({ brand, sub = 'Helping Hands Foundation', nav, views, alias = {}, support = false, badges = null, live = [], onLive = null, chip = null }) {
+// deps: { viewId: [collections it shows] }; a live change to any other collection does not re-draw that view. minGap: least ms between two re-draws.
+function layout({ brand, sub = 'Helping Hands Foundation', nav, views, alias = {}, support = false, badges = null, live = [], onLive = null, chip = null, deps = {}, minGap = 1500 }) {
   const u = pb.authStore.record, ini = (u.name || u.email || '?').trim()[0].toUpperCase();
   $('#app').innerHTML = `<div class="min-h-screen lg:flex">
   <div id="ov" class="fixed inset-0 bg-slate-900/40 z-30 hidden lg:hidden"></div>
@@ -397,8 +421,8 @@ function layout({ brand, sub = 'Helping Hands Foundation', nav, views, alias = {
 
   const go = async () => {
     const [rawId, qs = ''] = (location.hash || '#' + nav[0][0]).slice(1).split('?'), v = views[rawId] ? rawId : nav[0][0], navId = alias[v] || v;
-    const same = location.hash === window._lh, y = scrollY;                       // refresh() keeps the page where it was
-    if (!same) { window._lh = location.hash; window._hf = {}; window._sel = new Set(); }                   // moving to another page forgets its filters
+    const same = location.hash === window._lh, y = scrollY; window._view = v;                       // refresh() keeps the page where it was
+    if (!same) { window._lh = location.hash; window._hf = {}; window._pg = {}; window._sel = new Set(); }                   // moving to another page forgets its filters
     document.querySelectorAll('.nl').forEach(a => { const on = a.dataset.id === navId; a.classList.toggle('bg-white/10', on); a.classList.toggle('!text-white', on); a.classList.toggle('nl-on', on); });
     $('#ttl').textContent = (nav.find(n => n[0] === navId) || nav[0])[1];
     ALL = null; closePlan(); if (!same) scrollTo(0, 0);
@@ -421,13 +445,24 @@ function layout({ brand, sub = 'Helping Hands Foundation', nav, views, alias = {
   };
 
   // real time: PocketBase pushes every change; the page re-renders itself, but never while someone is typing or has a pop-up open
-  let lt, bt;
+  let lt = null, bt = null, lastRun = 0;
+  const jit = (a, b) => a + Math.random() * (b - a);
   const typing = () => { const a = document.activeElement; return !!a && (a.tagName === 'TEXTAREA' || (a.tagName === 'INPUT' && /^(text|search|number|tel|email|password|url)$/.test(a.type))); };
   const busyUI = () => $('[data-ui]') || $('#dr') || typing();
-  const kick = () => { clearTimeout(lt); lt = setTimeout(function run() { if (busyUI()) { lt = setTimeout(run, 2000); return; } refresh(); }, 500); };
-  live.forEach(c => { const p = pb.collection(c).subscribe?.('*', e => { try { onLive?.(c, e); } catch (x) { } clearTimeout(bt); bt = setTimeout(() => { updBadges(); updChip(); }, 300); kick(); }); p?.catch?.(() => { }); });
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) kick(); });   // catch up after the tab slept
-  setInterval(() => { if (!document.hidden) kick(); }, 90000);                              // safety net if a network blocks the live connection
+  // One re-draw is scheduled at a time (later changes ride along with it), never more often than minGap, and never while typing or in a pop-up.
+  const kick = (delay = jit(300, 1200)) => {
+    if (lt) return;
+    lt = setTimeout(function run() { if (busyUI()) { lt = setTimeout(run, 2000); return; } lt = null; lastRun = Date.now(); refresh(); }, Math.max(delay, minGap - (Date.now() - lastRun)));
+  };
+  const side = () => { if (bt) return; bt = setTimeout(() => { bt = null; updBadges(); updChip(); }, 1500); };   // counters and wallet chip, at most every 1.5 s
+  live.forEach(c => { const p = pb.collection(c).subscribe?.('*', e => {
+    try { onLive?.(c, e); } catch (x) { }
+    side();
+    const d = deps[window._view]; if (d && !d.includes(c)) return;                          // this page does not show that collection
+    kick(c === 'plans' && u.role !== 'admin' ? jit(1000, 8000) : undefined);                // a plan change reaches every member: spread their reloads out
+  }); p?.catch?.(() => { }); });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) kick(jit(500, 4000)); });   // catch up after the tab slept
+  setInterval(() => { if (!document.hidden) kick(jit(0, 60000)); }, 300000);                             // safety net every ~5 min if a network blocks the live connection
 
   addEventListener('hashchange', go); go();
 }
@@ -463,11 +498,13 @@ window.dlInvoice = async key => {
   catch (e) { toast(e.message, 1); }
 };
 
-// o: { txs, cust (the member the history belongs to, or null for everyone), showUser, key (remembers filters across refreshes), extra(t) (extra action buttons), kinds }
+// o: { txs, cust (the member the history belongs to, or null for everyone), showUser, key (remembers filters across refreshes), extra(t) (extra action buttons), kinds,
+//      remote: async (F, page, per) => ({ txs, total })  -> filters run on the server and only one page is downloaded (used for large lists) }
 function txHistory(m, o) {
-  const { txs, cust = null, showUser = false, key = 'tx', extra = () => '', kinds = ['payment', 'payout'] } = o, multi = kinds.length > 1;
-  window.TXCUST = cust; txs.forEach(t => { t.no = invNo(t); TX[t.key] = t; });
-  if (!txs.length) { m.innerHTML = table([], []); return; }
+  const { txs = [], cust = null, showUser = false, key = 'tx', extra = () => '', kinds = ['payment', 'payout'], remote = null } = o, multi = kinds.length > 1, PER = 50;
+  const reg = l => l.forEach(t => { t.no = invNo(t); TX[t.key] = t; });
+  window.TXCUST = cust; reg(txs);
+  if (!remote && !txs.length) { m.innerHTML = table([], []); return; }
   window._hf = window._hf || {};
   const F = window._hf[key] || (window._hf[key] = { from: '', to: '', status: 'all', kind: 'all', q: '' });
   const PRE = { all: ['All time', () => ['', '']], today: ['Today', () => [todayL(), todayL()]], 7: ['Last 7 days', () => [addDays(todayL(), -6), todayL()]], 30: ['Last 30 days', () => [addDays(todayL(), -29), todayL()]], month: ['This month', () => [todayL().slice(0, 8) + '01', todayL()]] };
@@ -485,8 +522,21 @@ function txHistory(m, o) {
   const heads = ['Date', ...(showUser ? ['Member'] : []), ...(multi ? ['Type'] : []), 'Plan', 'Amount', 'Covers', 'Penalty', 'Note', 'Status', ''];
   const row = t => [date(t.created), ...(showUser ? [ulink(t.user)] : []), ...(multi ? [t.kind === 'payment' ? 'Payment' : 'Payout'] : []), esc(t.plan), naira(t.amount), t.covers || '—', t.penalty ? penBadge({ penalty: t.penalty }) : '—', esc(t.note) || '—', badge(t.status),
     extra(t) + `<button type="button" onclick="dlInvoice('${t.key}')" class="px-2.5 py-1 text-xs rounded-md border font-medium bg-white text-slate-700 hover:bg-slate-50">${t.kind === 'payment' ? 'Invoice' : 'Receipt'} (PDF)</button>`];
-  let cur = [];
-  const paint = () => {
+  let cur = [], page = 1, seq = 0;
+  const paintRemote = async () => {
+    const my = ++seq; $('#hr').innerHTML = '<p class="text-sm text-slate-400 py-6">Loading…</p>';
+    let r; try { r = await remote(F, page, PER); } catch (e) { if (my === seq) $('#hr').innerHTML = `<p class="text-sm text-red-600">${esc(e.message)}</p>`; return; }
+    if (my !== seq) return;                                    // a newer search has started
+    reg(r.txs); cur = r.txs; const pages = Math.max(1, Math.ceil(r.total / PER));
+    document.querySelectorAll('#hp button').forEach(b => { const [f, t] = PRE[b.dataset.p][1](), on = f === F.from && t === F.to; b.className = 'whitespace-nowrap px-3 py-1.5 rounded-full text-sm font-medium border ' + (on ? 'bg-emerald-800 text-white border-emerald-800' : 'bg-white text-slate-600 hover:bg-slate-100'); });
+    $('#hc').innerHTML = `<b class="text-slate-700">${r.total.toLocaleString()}</b> transactions match`;
+    $('#hr').innerHTML = (cur.length ? table(heads, cur.map(row)) : '<div class="bg-white border border-dashed rounded-xl p-10 text-center text-slate-500 text-sm">No transactions match. Try a wider date range or clear the filters.</div>')
+      + (r.total > PER ? `<div class="flex flex-wrap items-center justify-between gap-3 mt-4 text-sm text-slate-500"><span>Page ${page} of ${pages.toLocaleString()}</span><span class="flex gap-2"><button data-pg="${page - 1}" ${page > 1 ? '' : 'disabled'} class="${pgBtn}">← Previous</button><button data-pg="${page + 1}" ${page < pages ? '' : 'disabled'} class="${pgBtn}">Next →</button></span></div>` : '');
+    $('#hr').querySelectorAll('[data-pg]').forEach(b => b.onclick = () => { page = +b.dataset.pg; paintRemote(); });
+  };
+  let qt;
+  const paint = (fromSearch) => {
+    if (remote) { page = 1; clearTimeout(qt); if (fromSearch) qt = setTimeout(paintRemote, 350); else paintRemote(); return; }
     const q = F.q.trim().toLowerCase();
     cur = txs.filter(t => { const d = lagosDay(t.created); return (!F.from || d >= F.from) && (!F.to || d <= F.to) && (F.status === 'all' || t.status === F.status) && (F.kind === 'all' || t.kind === F.kind) && (!q || [t.plan, t.note, t.no, t.user?.name, t.user?.email].join(' ').toLowerCase().includes(q)); });
     document.querySelectorAll('#hp button').forEach(b => { const [f, t] = PRE[b.dataset.p][1](), on = f === F.from && t === F.to; b.className = 'whitespace-nowrap px-3 py-1.5 rounded-full text-sm font-medium border ' + (on ? 'bg-emerald-800 text-white border-emerald-800' : 'bg-white text-slate-600 hover:bg-slate-100'); });
@@ -499,13 +549,18 @@ function txHistory(m, o) {
   $('#ht').onchange = e => { F.to = e.target.value; if (F.from && F.from > F.to && F.to) { F.from = F.to; $('#hf').value = F.from; } paint(); };
   $('#hs').onchange = e => { F.status = e.target.value; paint(); };
   if (multi) $('#hk').onchange = e => { F.kind = e.target.value; paint(); };
-  $('#hq').oninput = e => { F.q = e.target.value; paint(); };
+  $('#hq').oninput = e => { F.q = e.target.value; paint(true); };
   $('#hx').onclick = () => { Object.assign(F, { from: '', to: '', status: 'all', kind: 'all', q: '' }); txHistory(m, o); };
   $('#hd').onclick = async () => {
-    if (!cur.length) return toast('There are no transactions in this range to download.', 1);
+    let list = cur;
     try {
+      if (remote) {                                              // the statement covers every match, not just this page (up to 5,000)
+        toast('Gathering transactions…'); const r = await remote(F, 1, 5000); list = r.txs; reg(list);
+        if (r.total > 5000) toast('Only the first 5,000 transactions fit in one statement. Narrow the dates for the rest.', 1, 6000);
+      }
+      if (!list.length) return toast('There are no transactions in this range to download.', 1);
       toast('Preparing your PDF…'); const [J, logo] = await Promise.all([loadPDF(), logoData()]);
-      buildStatement(J, { txs: cur, cust, showUser, from: F.from, to: F.to }, logo, CO).save('Statement-' + (cust?.name || 'all-members').replace(/[^a-z0-9]+/gi, '-') + '-' + todayL() + '.pdf');
+      buildStatement(J, { txs: list, cust, showUser, from: F.from, to: F.to }, logo, CO).save('Statement-' + (cust?.name || 'all-members').replace(/[^a-z0-9]+/gi, '-') + '-' + todayL() + '.pdf');
     } catch (e) { toast(e.message, 1); }
   };
   paint();

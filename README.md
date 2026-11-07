@@ -1,6 +1,6 @@
 # Jessy James Helping Hands Foundation – website
 
-Plain HTML, CSS, JavaScript, Tailwind (CDN) and PocketBase. No build step: upload the folder to any static host.
+Plain HTML, CSS, JavaScript, Tailwind and PocketBase. Upload the folder to any static host. Tailwind is pre-built into `tailwind.css` (no CDN), so pages load fast even on cheap phones.
 
 ## Pages
 
@@ -17,7 +17,15 @@ Open `app.js`, top of the file:
 1. `PB_URL`: your PocketBase URL on Railway, e.g. `https://jjhhf-backend-production.up.railway.app` (no trailing slash).
 2. `SUPPORT_PHONE`: the foundation's support/WhatsApp number.
 
-Colours are in `theme.js` (`brand` and `accent`). Change them there and every page follows.
+## Changing colours or adding new styles
+
+Colours are in `tailwind.config.js` (`brand` and `accent`). After changing them, or after adding Tailwind classes that are not used anywhere yet, rebuild the CSS (needs Node.js):
+
+```
+npx tailwindcss@3.4.17 -i ./src/input.css -o ./tailwind.css --minify
+```
+
+(`npm install` then `npm run build` does the same; `npm run watch` rebuilds as you edit.) `src/`, `package.json` and `tailwind.config.js` don't need to be uploaded, but keeping them there does no harm.
 
 ## Go live (replacing the old site)
 

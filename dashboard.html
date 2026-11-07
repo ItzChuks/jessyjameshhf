@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><script src="https://cdn.tailwindcss.com/3.4.17"></script><script src="theme.js"></script><script src="https://cdn.jsdelivr.net/npm/pocketbase@0.26.8/dist/pocketbase.umd.js"></script><script src="mock.js"></script><script src="pdf.js"></script><script src="app.js"></script><title>Dashboard – Jessy James Helping Hands Foundation</title></head>
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><link rel="stylesheet" href="tailwind.css"><script src="theme.js"></script><script src="https://cdn.jsdelivr.net/npm/pocketbase@0.26.8/dist/pocketbase.umd.js"></script><script src="mock.js"></script><script src="pdf.js"></script><script src="app.js"></script><title>Dashboard – Jessy James Helping Hands Foundation</title></head>
 <body class="bg-slate-50 text-slate-800"><div id="app"></div>
 <script>
 if (guard()) {
@@ -130,7 +130,7 @@ const startApp = () => layout({ brand: BRAND_SHORT, nav: [['overview', 'Overview
     const u = U(); m.innerHTML = head('Profile', 'Update your details.') + `<form id="pf2" class="bg-white border rounded-xl p-6 max-w-md space-y-3">${fld('Full name', 'name', u.name)}${fld('Country', 'country', u.country)}${fld('Phone', 'phone', u.phone)}<button class="${btn}">Save changes</button></form>`;
     $('#pf2').onsubmit = async e => { e.preventDefault(); try { await pb.collection('users').update(u.id, Object.fromEntries(new FormData(e.target))); toast('Saved'); } catch (x) { toast(x.message, 1); } };
   }
-}, support: true, chip: async () => naira(await walletBal()), live: ['plans', 'subscriptions', 'payments', 'payouts', 'fees', 'wallet_txs'], onLive: (c, e) => {
+}, support: true, deps: { overview: ['subscriptions', 'payments', 'wallet_txs'], wallet: ['wallet_txs', 'subscriptions', 'payments'], plans: ['plans'], mine: ['subscriptions', 'payments', 'payouts', 'wallet_txs'], payments: ['payments', 'payouts'], fees: ['fees'], payouts: ['payouts'], rules: [], profile: [] }, chip: async () => naira(await walletBal()), live: ['plans', 'subscriptions', 'payments', 'payouts', 'fees', 'wallet_txs'], onLive: (c, e) => {
   if (c === 'wallet_txs' && e.action === 'create') {
     const r = e.record;
     if (r.kind === 'topup') toast(naira(r.amount) + ' received in your wallet.', 0, 6000);
