@@ -23,7 +23,7 @@
     let x = 14;
     if (logo) { try { d.addImage(logo, 'PNG', 14, 7, 22, 22); x = 41; } catch (e) { /* logo is optional */ } }
     font(d, 'bold', 12, K.white); d.text(fit(d, co.name, 92), x, 17.5);
-    font(d, 'normal', 9, K.mint); d.text('Community savings foundation - Ikotun, Lagos', x, 24.5);
+    font(d, 'normal', 9, K.mint); d.text(txt(co.tagline || 'Community savings foundation') + (co.rc ? '  |  RC ' + txt(co.rc) : ''), x, 24.5);
     font(d, 'bold', 20, K.white); d.text(title, 196, 17, { align: 'right' });
     font(d, 'normal', 9, K.mint); d.text(txt(sub), 196, 24.5, { align: 'right' });
   }
@@ -32,9 +32,9 @@
     for (let i = 1; i <= N; i++) {
       d.setPage(i); d.setDrawColor(K.line[0], K.line[1], K.line[2]); d.line(14, 284, 196, 284);
       font(d, 'normal', 8, K.mute);
-      d.text(txt(co.name) + (co.phone ? '   |   Support: ' + txt(co.phone) : ''), 14, 289);
-      d.text('Generated ' + fdate(now) + ', ' + ftime(now) + ' (Lagos time)   |   Page ' + i + ' of ' + N, 196, 289, { align: 'right' });
-      d.text('This is a computer-generated document and needs no signature.', 14, 293.5);
+      d.text(fit(d, txt(co.name) + (co.phone ? '   |   Customer care: ' + txt(co.phone) : '') + (co.email ? '   |   ' + txt(co.email) : ''), 182), 14, 288.5);
+      d.text('Computer-generated document; no signature needed.', 14, 293);
+      d.text('Generated ' + fdate(now) + ', ' + ftime(now) + ' (Lagos time)   |   Page ' + i + ' of ' + N, 196, 293, { align: 'right' });
     }
   }
   function chip(d, t, rightX, y) {

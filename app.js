@@ -3,7 +3,12 @@ const PB_URL = 'https://YOUR-POCKETBASE-SERVICE.up.railway.app';   // your Pocke
 const USE_MOCK = false; // false = real PocketBase (default). true = offline demo using localStorage + mock.js.
 const BRAND = 'Jessy James Helping Hands Foundation';   // full name (invoices, terms, page titles)
 const BRAND_SHORT = 'JJHHF';                            // short name (sidebar, small screens)
-const SUPPORT_PHONE = '08026701578';                    // customer-support number (WhatsApp button, invoices, terms)
+const SUPPORT_PHONE = '09055556235';                    // customer care line 1 (also the WhatsApp button)
+const SUPPORT_PHONE_2 = '08110900549';                  // customer care line 2
+const SUPPORT_EMAIL = 'jessyjameshhf@gmail.com';
+const OFFICE_ADDRESS = 'Omo-Oye Bus Stop, Abaranje Road, Ikotun, Lagos';
+const RC_NUMBER = '9770763';                            // CAC registration number
+const TAGLINE = 'Empowering Lives, Feeding Hope';
 // Fees (naira). Display only: the amounts that are actually charged are set on the server (pb_hooks/wallet.js, keep them in sync).
 const FEES = { shirt: 5000, join: 3000, clearance: 3000, tax: 100 };   // tax = added to every deposit (pb_hooks/deposits.js)
 // ===== end config =====
@@ -210,7 +215,7 @@ const termsHTML = () => {
     + S(6, 'The t-shirt fee', `<p>Every member pays a one-time fee of <b>${naira(FEES.shirt)}</b> for the foundation t-shirt, taken from the wallet. You can use your dashboard, join plans and make contributions without paying it. It only becomes payable <b>when you want to request a payout</b>. It is paid once only.</p>`)
     + S(7, 'Payouts and the clearance fee', `<p>You can request a payout from a plan only when <b>all</b> of the following are true:</p><ul class="list-disc pl-5 space-y-1"><li>the plan is fully paid and its length has ended;</li><li><b>you have another plan that has been actively running for at least 2 weeks</b>: a plan you joined at least 14 days earlier, other than the one you are collecting, whose saving period has not yet ended;</li><li>you have paid the one-time ${naira(FEES.shirt)} t-shirt fee (see section 6);</li><li>your <b>payout details</b> (account name, bank, account number and address) are saved on your Profile page. Payouts are paid into that account, so keep it up to date.</li></ul><p>Every payout request also carries a clearance fee of <b>${naira(FEES.clearance)}</b>, taken from your wallet. Your request is sent as soon as it is paid.</p>`)
     + S(8, 'Records', `<p>Every deposit, fee and contribution is recorded in your wallet history on your dashboard, and you can see every payment, payout and plan code there.</p>`)
-    + S(9, 'Questions', `<p>For any question about these terms, contact customer support on <b>${SUPPORT_PHONE}</b>.</p>`)
+    + S(9, 'Contact', `<p>For any question about these terms, contact customer care on <b>${SUPPORT_PHONE}</b> or <b>${SUPPORT_PHONE_2}</b>, email <b>${SUPPORT_EMAIL}</b>, or visit us at <b>${OFFICE_ADDRESS}</b>.</p><p>${BRAND} · RC ${RC_NUMBER}.</p>`)
     + '</div>';
 };
 const rulesHTML = () => {
@@ -223,8 +228,13 @@ const rulesHTML = () => {
     + c('Weekly plans', `Taken from Monday and due by <b>Friday ${RULES.cutoffHour}:00 noon</b>. After that the week's payment is doubled.`)
     + c('Late penalty', `Every unpaid contribution carries its own penalty once its deadline has passed. A penalty is a fee: it does not count towards your savings or payout.`)
     + c('Your first payment', `Daily: today before noon if you join before noon, otherwise tomorrow before noon. Weekly: the coming Friday noon (or the one after, if it has passed).`)
-    + c('Time and confirmation', `All deadlines use Lagos time (WAT), whatever your device clock says. Deposits are confirmed automatically by Flutterwave.`) + '</div>';
+    + c('Time and confirmation', `All deadlines use Lagos time (WAT), whatever your device clock says. Deposits are confirmed automatically by Flutterwave.`) + '</div>' + contactHTML();
 };
+
+// contact card (Rules pages); the homepage and footer show the same details
+const telLink = n => `<a href="tel:${n}" class="text-emerald-800 font-medium hover:underline">${n}</a>`;
+const contactHTML = () => `<h2 class="text-sm font-semibold text-slate-900 mt-8 mb-3">Contact us</h2><div class="bg-white border rounded-xl p-5 max-w-4xl grid sm:grid-cols-2 gap-4 text-sm"><div><p class="text-xs uppercase tracking-wide text-slate-500">Customer care</p><p class="mt-1">${telLink(SUPPORT_PHONE)} · ${telLink(SUPPORT_PHONE_2)}</p><p class="mt-1"><a href="https://wa.me/${SUPPORT_WHATSAPP}" target="_blank" rel="noopener" class="text-emerald-800 font-medium hover:underline">Chat on WhatsApp</a></p></div><div><p class="text-xs uppercase tracking-wide text-slate-500">Email</p><p class="mt-1"><a href="mailto:${SUPPORT_EMAIL}" class="text-emerald-800 font-medium hover:underline">${SUPPORT_EMAIL}</a></p></div><div><p class="text-xs uppercase tracking-wide text-slate-500">Office</p><p class="mt-1 text-slate-700">${OFFICE_ADDRESS}</p><p class="mt-1"><a href="${MAP_URL}" target="_blank" rel="noopener" class="text-emerald-800 font-medium hover:underline">Open in Google Maps</a></p></div><div><p class="text-xs uppercase tracking-wide text-slate-500">Registration</p><p class="mt-1 text-slate-700">RC ${RC_NUMBER}</p></div></div>`;
+const MAP_URL = 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(OFFICE_ADDRESS + ', Nigeria');
 
 // ===== payout details (kept on the member's profile, used for every payout request) =====
 const NG_BANKS = ['Access Bank', 'Citibank', 'Ecobank', 'Fidelity Bank', 'First Bank of Nigeria', 'First City Monument Bank (FCMB)', 'Globus Bank', 'Guaranty Trust Bank (GTBank)', 'Heritage Bank', 'Jaiz Bank', 'Keystone Bank', 'Kuda Bank', 'Lotus Bank', 'Moniepoint MFB', 'OPay', 'PalmPay', 'Parallex Bank', 'Polaris Bank', 'Providus Bank', 'Stanbic IBTC Bank', 'Standard Chartered', 'Sterling Bank', 'SunTrust Bank', 'Taj Bank', 'Titan Trust Bank', 'Union Bank', 'United Bank for Africa (UBA)', 'Unity Bank', 'VFD Microfinance Bank', 'Wema Bank (ALAT)', 'Zenith Bank'];
@@ -432,7 +442,7 @@ function layout({ brand, sub = 'Helping Hands Foundation', nav, views, alias = {
   $('#app').innerHTML = `<div class="min-h-screen lg:flex">
   <div id="ov" class="fixed inset-0 bg-slate-900/40 z-30 hidden lg:hidden"></div>
   <aside id="sb" class="fixed lg:sticky top-0 z-40 h-[100dvh] w-64 shrink-0 bg-brand-950 text-white flex flex-col -translate-x-full lg:translate-x-0 transition-transform" style="background-image:radial-gradient(28rem 18rem at 0% 0%,rgba(93,134,247,.22),transparent)">
-    <a href="index.html" class="h-16 px-5 flex items-center gap-3 border-b !border-white/10"><img src="logo.svg" alt="" class="w-9 h-9 rounded-lg ring-1 ring-white/20"><span class="leading-tight"><span class="block font-semibold text-white text-[15px]">${brand}</span><span class="block text-[11px] text-brand-200/80">${sub}</span></span></a>
+    <a href="index.html" class="h-16 px-5 flex items-center gap-3 border-b !border-white/10"><img src="logo.png" alt="" class="w-10 h-10 rounded-lg bg-white"><span class="leading-tight"><span class="block font-semibold text-white text-[15px]">${brand}</span><span class="block text-[11px] text-brand-200/80">${sub}</span></span></a>
     <nav class="flex-1 p-3 space-y-0.5 overflow-y-auto">${nav.map(n => `<a href="#${n[0]}" data-id="${n[0]}" class="nl relative flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-brand-100/75 hover:bg-white/10 hover:text-white">${ic(IC[n[0]] || IC.overview)}${n[1]}<span data-b="${n[0]}" class="hidden ml-auto min-w-[20px] h-5 px-1.5 rounded-full bg-red-600 text-white text-[11px] font-semibold items-center justify-center"></span></a>`).join('')}</nav>
     <div class="p-3 pb-[max(1.5rem,env(safe-area-inset-bottom))] lg:pb-3 border-t !border-white/10 space-y-0.5">${support ? `<a href="${waLink()}" target="_blank" rel="noopener" class="w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg text-brand-100/75 hover:bg-white/10 hover:text-white"><span class="text-[#25D366]">${waIcon()}</span>Customer support</a>` : ''}<button onclick="logout()" class="w-full flex items-center gap-3 px-3 py-2 text-sm rounded-lg text-brand-100/75 hover:bg-white/10 hover:text-white">${ic(IC.out)}Log out</button></div>
   </aside>
@@ -530,7 +540,7 @@ function layout({ brand, sub = 'Helping Hands Foundation', nav, views, alias = {
 }
 
 // ===== transaction history: payments + payouts in one list, date filters, PDF invoices and statements =====
-const CO = { name: BRAND, phone: SUPPORT_PHONE };
+const CO = { name: BRAND, phone: SUPPORT_PHONE + ' / ' + SUPPORT_PHONE_2, email: SUPPORT_EMAIL, tagline: TAGLINE, rc: RC_NUMBER };
 const lagosDay = s => toL(parseTs(s)).toISOString().slice(0, 10);                      // YYYY-MM-DD on the Lagos calendar
 const addDays = (iso, n) => { const d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 const todayL = () => lagosDay(new Date().toISOString());

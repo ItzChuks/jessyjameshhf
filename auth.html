@@ -1,9 +1,9 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="tailwind.css?v=20261108b"><script src="theme.js?v=20261108b"></script><script src="https://cdn.jsdelivr.net/npm/pocketbase@0.26.8/dist/pocketbase.umd.js"></script><script src="mock.js?v=20261108b"></script><script src="app.js?v=20261108b"></script><title>Account – Jessy James Helping Hands Foundation</title></head>
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="tailwind.css?v=20261108c"><script src="theme.js?v=20261108c"></script><script src="https://cdn.jsdelivr.net/npm/pocketbase@0.26.8/dist/pocketbase.umd.js"></script><script src="mock.js?v=20261108c"></script><script src="app.js?v=20261108c"></script><title>Account – Jessy James Helping Hands Foundation</title></head>
 <body class="min-h-screen bg-slate-50 lg:grid lg:grid-cols-2">
 <aside class="hidden lg:flex flex-col justify-between bg-brand-950 text-white p-12 relative overflow-hidden" style="background-image:radial-gradient(40rem 26rem at 0% 0%,rgba(93,134,247,.28),transparent),radial-gradient(30rem 20rem at 100% 100%,rgba(245,183,42,.18),transparent)">
-  <a href="index.html" class="flex items-center gap-3"><img src="logo.svg" alt="" class="w-11 h-11 rounded-xl ring-1 ring-white/20"><span class="leading-tight"><span class="block font-semibold">Jessy James</span><span class="block text-sm text-brand-200">Helping Hands Foundation</span></span></a>
+  <a href="index.html" class="flex items-center gap-3"><img src="logo.png" alt="" class="w-12 h-12 rounded-xl bg-white"><span class="leading-tight"><span class="block font-semibold">Jessy James</span><span class="block text-sm text-brand-200">Helping Hands Foundation</span></span></a>
   <div class="max-w-md">
-    <p class="text-accent-300 text-sm font-semibold uppercase tracking-[.18em]">Ikotun, Lagos</p>
+    <p class="text-accent-300 text-sm font-semibold uppercase tracking-[.18em]">Empowering lives, feeding hope</p>
     <h2 class="font-display text-4xl xl:text-5xl leading-[1.1] mt-4">Saving is easier when we hold hands.</h2>
     <p class="text-brand-100/80 mt-5 leading-relaxed">Join a community that saves together daily or weekly on Grocery plans of 4 to 25 weeks, and collects a stocked kitchen when the plan ends. Your wallet, your plans and every receipt live on your dashboard.</p>
     <ul class="mt-8 space-y-3 text-sm text-brand-100/90">
@@ -12,11 +12,11 @@
       <li class="flex gap-3"><span class="w-6 h-6 rounded-full bg-accent-400 text-brand-950 grid place-items-center text-xs font-bold shrink-0">3</span>Join a plan; contributions are paid automatically</li>
     </ul>
   </div>
-  <p class="text-xs text-brand-200/70">© <span id="yr"></span> Jessy James Helping Hands Foundation</p>
+  <p class="text-xs text-brand-200/70">© <span id="yr"></span> Jessy James Helping Hands Foundation · RC <span id="rc"></span><br>Customer care: <span id="cc"></span></p>
 </aside>
 <div class="flex items-center justify-center px-4 py-10 min-h-screen lg:min-h-0">
 <div class="w-full max-w-md">
-  <a href="index.html" class="lg:hidden flex flex-col items-center gap-3 mb-6 text-center"><img src="logo.svg" alt="Jessy James Helping Hands Foundation logo" class="w-14 h-14 rounded-2xl shadow-lg"><span class="font-semibold text-slate-900 leading-tight">Jessy James<br><span class="text-sm font-medium text-slate-500">Helping Hands Foundation</span></span></a>
+  <a href="index.html" class="lg:hidden flex flex-col items-center gap-3 mb-6 text-center"><img src="logo.png" alt="Jessy James Helping Hands Foundation logo" class="w-16 h-16 rounded-2xl bg-white shadow-lg ring-1 ring-slate-200"><span class="font-semibold text-slate-900 leading-tight">Jessy James<br><span class="text-sm font-medium text-slate-500">Helping Hands Foundation</span></span></a>
   <div class="bg-white rounded-2xl shadow-xl shadow-brand-900/5 ring-1 ring-slate-200 p-6 sm:p-8">
     <div class="grid grid-cols-2 bg-slate-100 rounded-lg p-1 mb-6 text-sm font-medium"><button type="button" id="t-login" class="py-2 rounded-md">Log in</button><button type="button" id="t-register" class="py-2 rounded-md">Sign up</button></div>
     <h1 id="ttl" class="font-display text-2xl text-slate-900"></h1>
@@ -377,6 +377,6 @@ $('#f').onsubmit=async e=>{
  }
 };
 draw();
-document.getElementById('yr').textContent=new Date().getFullYear();
+document.getElementById('yr').textContent=new Date().getFullYear();document.getElementById('rc').textContent=RC_NUMBER;document.getElementById('cc').textContent=SUPPORT_PHONE+' · '+SUPPORT_PHONE_2;
 })();
 </script></body></html>

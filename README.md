@@ -15,7 +15,9 @@ Plain HTML, CSS, JavaScript, Tailwind and PocketBase. Upload the folder to any s
 Open `app.js`, top of the file:
 
 1. `PB_URL`: your PocketBase URL on Railway, e.g. `https://jjhhf-backend-production.up.railway.app` (no trailing slash).
-2. `SUPPORT_PHONE`: the foundation's support/WhatsApp number.
+2. Contact details (already filled in from the flyer): `SUPPORT_PHONE` (also the WhatsApp button), `SUPPORT_PHONE_2`, `SUPPORT_EMAIL`, `OFFICE_ADDRESS`, `RC_NUMBER`, `TAGLINE`. Every page, the footer, the Terms and the PDF receipts read them from here.
+
+The logo is `logo.png` (tab icons: `favicon.png`, `apple-touch-icon.png`). To change it, replace those files with a square image of the same name.
 
 ## Changing colours or adding new styles
 
