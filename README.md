@@ -27,7 +27,11 @@ Colours are in `tailwind.config.js` (`brand` and `accent`). After changing them,
 npx tailwindcss@3.4.17 -i ./src/input.css -o ./tailwind.css --minify
 ```
 
-(`npm install` then `npm run build` does the same; `npm run watch` rebuilds as you edit.) `src/`, `package.json` and `tailwind.config.js` don't need to be uploaded, but keeping them there does no harm.
+`src/` and `tailwind.config.js` are only used for that rebuild. There is deliberately no `package.json`: Vercel would then try to "build" the site and fail looking for a `public` folder. `vercel.json` tells Vercel to publish the files as they are.
+
+## Go live on Vercel
+
+Push these files (the folder's contents, not a folder) to the root of the GitHub repo connected to Vercel. `vercel.json` makes Vercel publish them as they are, with no build step. If the project's Settings > Build and Deployment has a Build Command, Output Directory or Framework set, clear them (or set Framework to "Other").
 
 ## Go live (replacing the old site)
 
