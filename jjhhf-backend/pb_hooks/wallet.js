@@ -108,15 +108,48 @@ function collect(app, uid) {
   return done;
 }
 
+// ---- plan codes ----
+const CODE_ABC = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";                      // no 0/O or 1/I, so codes are easy to read out
+const normCode = c => String(c || "").toUpperCase().replace(/[^A-Z0-9]/g, "").replace(/^(JJ)?([A-Z0-9]{4})([A-Z0-9]{4})$/, "JJ-$2-$3");
+function newCode(app) {
+  for (let i = 0; i < 20; i++) {
+    const c = "JJ-" + $security.randomStringWithAlphabet(4, CODE_ABC) + "-" + $security.randomStringWithAlphabet(4, CODE_ABC);
+    try { app.findFirstRecordByData("subscriptions", "code", c); } catch (_) { return c; }
+  }
+  throw new Error("Could not create a unique code.");
+}
+const lastDayLagos = until => { const l = new Date(until.getTime() + 36e5 - 1); return "the end of " + l.getUTCDate() + " " + MONTHS[l.getUTCMonth()] + " " + l.getUTCFullYear(); };   // "until" is the first moment after the last valid day
+const whenLagos = d => { const l = new Date(d.getTime() + 36e5); return l.getUTCDate() + " " + MONTHS[l.getUTCMonth()] + " " + l.getUTCFullYear() + ", " + String(l.getUTCHours()).padStart(2, "0") + ":" + String(l.getUTCMinutes()).padStart(2, "0"); };
+// Where a code stands: { status: valid | used | expired | not_yet | invalid, rec, from, until, message }
+function codeState(app, code, now = new Date()) {
+  const c = normCode(code);
+  let rec; try { rec = app.findFirstRecordByData("subscriptions", "code", c); } catch (_) { return { status: "invalid", code: c, message: "That code does not exist. Check it and try again." }; }
+  const from = R.parseTs(rec.getString("code_from")), until = R.parseTs(rec.getString("code_until"));
+  let planName = ""; try { planName = app.findRecordById("plans", rec.getString("plan")).getString("name"); } catch (_) { }
+  const base = { rec, code: c, from, until, plan: planName };
+  if (rec.getString("code_used_at")) return Object.assign(base, { status: "used", message: "This code has already been used." });
+  if (rec.getString("status") === "cancelled") return Object.assign(base, { status: "invalid", message: "This code is no longer valid (its plan was cancelled)." });
+  if (now >= until) return Object.assign(base, { status: "expired", message: "This code expired at " + lastDayLagos(until) + "." });
+  if (now < from) return Object.assign(base, { status: "not_yet", message: "This code can only be used from " + whenLagos(from) + "." });
+  return Object.assign(base, { status: "valid", message: "Code accepted. It can be used until " + lastDayLagos(until) + "." });
+}
+
 // Joins a plan: takes the joining fee and, for cash/foodie plans joined mid-season, the catch-up for every instalment
 // that fell due since 1 January (no penalty). All or nothing: if the wallet cannot cover it, nothing is created.
-function joinPlan(app, uid, planId) {
+// An optional plan code (from any member's plan, including one shared by another member) can be given; it must be open
+// (between its start and expiry) and unused, and is then marked as used by this member. Every new membership gets its own code.
+function joinPlan(app, uid, planId, code) {
   let plan; try { plan = app.findRecordById("plans", String(planId || "")); } catch (_) { throw new BadRequestError("That plan does not exist."); }
   if (!plan.getBool("active")) throw new BadRequestError("That plan is not open for enrolment.");
   const pl = R.planObj(plan);
+  const cs = String(code || "").trim() ? codeState(app, code) : null;
+  if (cs && cs.status !== "valid") throw new BadRequestError(cs.message);
   const sub = new Record(app.findCollectionByNameOrId("subscriptions"));
   sub.set("user", uid); sub.set("plan", plan.id); sub.set("status", "active");
+  if (cs) sub.set("joined_code", cs.code);
   app.save(sub);                                                 // "created" is now the joined time
+  const win = R.codeWindow(sub.getString("created"), plan.getInt("code_from_day"), plan.getInt("code_until_day"));
+  if (win) { sub.set("code", newCode(app)); sub.set("code_from", ts(win.from)); sub.set("code_until", ts(win.until)); app.save(sub); }
   const s = { id: sub.id, created: sub.getString("created") };
   const c = R.catchupCount(s, pl), catchup = c * pl.amount, total = FEES.join + catchup, bal = balanceOf(app, uid);
   if (bal < total) {
@@ -136,6 +169,13 @@ function joinPlan(app, uid, planId) {
   }
   sub.set("paid_count", c); sub.set("next_collect", nextCollect(s, pl, c));
   app.save(sub);
+  if (cs) {                                                      // mark the code as used (the owner and the admin see who used it and when)
+    const owner = app.findRecordById("subscriptions", cs.rec.id), me = app.findRecordById("users", uid);
+    if (owner.getString("code_used_at")) throw new BadRequestError("This code has already been used.");
+    owner.set("code_used_by", uid); owner.set("code_used_name", me.getString("name") || me.getString("email"));
+    owner.set("code_used_at", ts(new Date())); owner.set("code_used_sub", sub.id);
+    app.save(owner);
+  }
   collect(app, uid);                                             // today's instalment, if the wallet still has enough
   return { subscription: sub.id, catchup, instalments: c };
 }
@@ -150,4 +190,4 @@ function inTx(fn) {
   }
 }
 
-module.exports = { FEES, naira, post, credit, collect, joinPlan, balanceOf, inTx, syncSub, ts, DONE };
+module.exports = { FEES, naira, post, credit, collect, joinPlan, balanceOf, inTx, syncSub, ts, DONE, codeState, normCode };

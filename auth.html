@@ -5,10 +5,10 @@
   <div class="max-w-md">
     <p class="text-accent-300 text-sm font-semibold uppercase tracking-[.18em]">Ikotun, Lagos</p>
     <h2 class="font-display text-4xl xl:text-5xl leading-[1.1] mt-4">Saving is easier when we hold hands.</h2>
-    <p class="text-brand-100/80 mt-5 leading-relaxed">Join a community that saves together daily, weekly or monthly, and collects cash or food items when the season ends. Your wallet, your plans and every receipt live on your dashboard.</p>
+    <p class="text-brand-100/80 mt-5 leading-relaxed">Join a community that saves together daily or weekly on Grocery plans of 4 to 25 weeks, and collects a stocked kitchen when the plan ends. Your wallet, your plans and every receipt live on your dashboard.</p>
     <ul class="mt-8 space-y-3 text-sm text-brand-100/90">
       <li class="flex gap-3"><span class="w-6 h-6 rounded-full bg-accent-400 text-brand-950 grid place-items-center text-xs font-bold shrink-0">1</span>Create your account in two minutes</li>
-      <li class="flex gap-3"><span class="w-6 h-6 rounded-full bg-accent-400 text-brand-950 grid place-items-center text-xs font-bold shrink-0">2</span>Get your own account number and fund your wallet</li>
+      <li class="flex gap-3"><span class="w-6 h-6 rounded-full bg-accent-400 text-brand-950 grid place-items-center text-xs font-bold shrink-0">2</span>Fund your wallet with Flutterwave</li>
       <li class="flex gap-3"><span class="w-6 h-6 rounded-full bg-accent-400 text-brand-950 grid place-items-center text-xs font-bold shrink-0">3</span>Join a plan; contributions are paid automatically</li>
     </ul>
   </div>
@@ -304,7 +304,7 @@ function draw(){
  +field('Email address','email','email',reg?'email':'username','required placeholder="you@example.com"')
  +pwField('Password',reg?'password':'password',reg?'new-password':'current-password',reg?'At least 8 characters.':'')
  +(reg?pwField('Confirm password','passwordConfirm','new-password'):'')
- +(reg?`<div class="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900"><p class="text-sm font-semibold">Before you join</p><ul class="list-disc pl-4 mt-1 space-y-0.5"><li>One-time t-shirt fee: <b>${naira(FEES.shirt)}</b>. You can use the site without it; it is only required when you request a payout.</li><li>Registration (joining) fee: <b>${naira(FEES.join)}</b>, taken from your wallet before you join any plan. You fund the wallet by transfer to your own account number.</li><li>Cash and Foodie savings run <b>1 January to 30 November</b>; joining part-way means paying the contributions already due.</li><li>Payout clearance fee: <b>${naira(FEES.clearance)}</b>, taken from your wallet with every payout request.</li><li>To request a payout from a plan, you must have another plan actively running.</li></ul></div>
+ +(reg?`<div class="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900"><p class="text-sm font-semibold">Before you join</p><ul class="list-disc pl-4 mt-1 space-y-0.5"><li>You fund your wallet with <b>Flutterwave</b> (card, transfer or USSD). No BVN or NIN needed. Every deposit carries a <b>${naira(FEES.tax)} tax charge</b> (to add ${naira(3000)} you pay ${naira(3000+FEES.tax)}).</li><li>Joining fee: <b>${naira(FEES.join)}</b>, taken from your wallet each time you join a plan.</li><li>Grocery plans run <b>4, 8, 12 or 25 weeks</b>. Each plan you join gives you a <b>plan code</b>, usable once (by you or someone you share it with) between the days shown on the plan.</li><li>One-time t-shirt fee: <b>${naira(FEES.shirt)}</b>, only required when you request a payout. Payout clearance fee: <b>${naira(FEES.clearance)}</b> per request.</li><li>To request a payout you need <b>another plan that has been running for at least 2 weeks</b>.</li></ul></div>
   <label class="flex items-start gap-2 text-sm text-slate-700 cursor-pointer"><input id="terms" type="checkbox" class="mt-0.5 w-4 h-4 shrink-0 accent-emerald-700"><span>I have read and accept the <a href="terms.html" target="_blank" class="text-emerald-800 underline">Terms and Conditions</a>, including these fees.</span></label>`:'')
  +`<button id="go" class="${btn} w-full py-2.5 mt-1">${reg?'Create account':'Log in'}</button>`;
  hideErr();

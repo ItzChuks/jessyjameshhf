@@ -1,11 +1,11 @@
 // ===== CONFIG (edit these) =====
-const PB_URL = 'https://jessyjameshhf-production.up.railway.app/';   // your PocketBase on Railway (no trailing slash)
+const PB_URL = 'https://YOUR-POCKETBASE-SERVICE.up.railway.app';   // your PocketBase on Railway (no trailing slash)
 const USE_MOCK = false; // false = real PocketBase (default). true = offline demo using localStorage + mock.js.
 const BRAND = 'Jessy James Helping Hands Foundation';   // full name (invoices, terms, page titles)
 const BRAND_SHORT = 'JJHHF';                            // short name (sidebar, small screens)
 const SUPPORT_PHONE = '08026701578';                    // customer-support number (WhatsApp button, invoices, terms)
 // Fees (naira). Display only: the amounts that are actually charged are set on the server (pb_hooks/wallet.js, keep them in sync).
-const FEES = { shirt: 5000, join: 3000, clearance: 3000 };
+const FEES = { shirt: 5000, join: 3000, clearance: 3000, tax: 100 };   // tax = added to every deposit (pb_hooks/deposits.js)
 // ===== end config =====
 
 const pb = USE_MOCK ? createMockPB() : new PocketBase(PB_URL);
@@ -22,12 +22,16 @@ const inp = 'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-s
 const btn = 'inline-flex items-center justify-center px-4 py-2 text-sm font-medium rounded-lg bg-emerald-800 text-white hover:bg-emerald-900 transition';
 const btn2 = 'inline-flex items-center justify-center px-4 py-2 text-sm font-medium rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 transition';
 const refresh = () => dispatchEvent(new Event('hashchange'));
-const FEE_LABEL = { shirt: 'T-shirt registration', join: 'Joining fee', clearance: 'Payout clearance fee' };
+const FEE_LABEL = { shirt: 'T-shirt registration', join: 'Joining fee', clearance: 'Payout clearance fee', tax: 'Tax charge (deposit)' };
 const FQ = { daily: 'day', weekly: 'week', monthly: 'month' };
 // A plan's saving period is set in months; the number of payments follows from the frequency (daily ~30.4/month, weekly ~4.35/month, monthly 1/month)
 const paymentsFor = (months, f) => f === 'daily' ? Math.round(months * 365 / 12) : f === 'weekly' ? Math.round(months * 52.14 / 12) : months;
 const monthsOf = p => p.months > 0 ? p.months : Math.max(1, Math.round(p.duration * (p.frequency === 'daily' ? 12 / 365 : p.frequency === 'weekly' ? 12 / 52.14 : 1)));
-const monthsLabel = p => { if (isSeasonal(p)) return 'Jan 1 – Nov 30'; const m = monthsOf(p); return m + ' month' + (m === 1 ? '' : 's'); };
+// Grocery plans run for a number of weeks (4, 8, 12, 25...). Older plans without "weeks" are estimated from their payments.
+const weeksOf = p => p.weeks > 0 ? p.weeks : Math.max(1, Math.round(p.frequency === 'daily' ? p.duration / 7 : p.frequency === 'weekly' ? p.duration : p.duration * 4.345));
+const PLAN_WEEKS = [4, 8, 12, 25];
+const monthsLabel = p => { if (isSeasonal(p)) return 'Jan 1 – Nov 30'; const w = weeksOf(p); return w + ' week' + (w === 1 ? '' : 's'); };
+const codeDays = p => p.code_from_day > 0 && p.code_until_day >= p.code_from_day ? `day ${p.code_from_day} to day ${p.code_until_day}` : '';
 const ic = d => `<svg class="w-[18px] h-[18px] shrink-0" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="${d}"/></svg>`;
 const WA_PATH = 'M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z';
 const waIcon = (cls = 'w-[18px] h-[18px]') => `<svg class="${cls} shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="${WA_PATH}"/></svg>`;
@@ -36,7 +40,7 @@ const waLink = () => {
   const t = "Hello " + BRAND + " support, I need some help." + (u ? '\nName: ' + (u.name || '') + '\nEmail: ' + (u.email || '') : '');
   return 'https://wa.me/' + SUPPORT_WHATSAPP + '?text=' + encodeURIComponent(t);
 };
-const IC = { overview: 'M4 13h6V4H4zM14 20h6v-9h-6zM14 4v4h6V4zM4 20h6v-3H4z', plans: 'M4 6h16M4 12h16M4 18h10', mine: 'M4 20V10M10 20V4M16 20v-7M22 20H2', payments: 'M3 6h18v12H3zM3 10h18', fees: 'M3 6h18v12H3zM3 10h18', payouts: 'M12 4v11m0 0l-4-4m4 4l4-4M5 20h14', profile: 'M12 12a4 4 0 100-8 4 4 0 000 8zM4 21a8 8 0 0116 0', users: 'M16 20v-1a4 4 0 00-4-4H7a4 4 0 00-4 4v1M9.5 11a3.5 3.5 0 100-7 3.5 3.5 0 000 7zM21 20v-1a4 4 0 00-3-3.9', subs: 'M9 12l2 2 4-4M5 4h14v16H5z', out: 'M15 4h4v16h-4M10 8l-4 4 4 4M6 12h9', menu: 'M4 6h16M4 12h16M4 18h16', moon: 'M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z', sun: 'M12 16a4 4 0 100-8 4 4 0 000 8zM12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4', rules: 'M9 12h6M9 16h6M7 3h8l4 4v14H7zM15 3v4h4', wallet: 'M3 7h16a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2zM3 7l2-3h12v3M16 13.5h2', search: 'M21 21l-4.3-4.3M10.5 18a7.5 7.5 0 100-15 7.5 7.5 0 000 15z' };
+const IC = { overview: 'M4 13h6V4H4zM14 20h6v-9h-6zM14 4v4h6V4zM4 20h6v-3H4z', plans: 'M4 6h16M4 12h16M4 18h10', mine: 'M4 20V10M10 20V4M16 20v-7M22 20H2', payments: 'M3 6h18v12H3zM3 10h18', fees: 'M3 6h18v12H3zM3 10h18', payouts: 'M12 4v11m0 0l-4-4m4 4l4-4M5 20h14', profile: 'M12 12a4 4 0 100-8 4 4 0 000 8zM4 21a8 8 0 0116 0', users: 'M16 20v-1a4 4 0 00-4-4H7a4 4 0 00-4 4v1M9.5 11a3.5 3.5 0 100-7 3.5 3.5 0 000 7zM21 20v-1a4 4 0 00-3-3.9', subs: 'M9 12l2 2 4-4M5 4h14v16H5z', out: 'M15 4h4v16h-4M10 8l-4 4 4 4M6 12h9', menu: 'M4 6h16M4 12h16M4 18h16', moon: 'M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z', sun: 'M12 16a4 4 0 100-8 4 4 0 000 8zM12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4', rules: 'M9 12h6M9 16h6M7 3h8l4 4v14H7zM15 3v4h4', wallet: 'M3 7h16a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2zM3 7l2-3h12v3M16 13.5h2', search: 'M21 21l-4.3-4.3M10.5 18a7.5 7.5 0 100-15 7.5 7.5 0 000 15z', codes: 'M20.6 13.4l-7.2 7.2a2 2 0 01-2.8 0L3 13V3h10l7.6 7.6a2 2 0 010 2.8zM7.5 7.5h.01', deposits: 'M12 20V9m0 0l-4 4m4-4l4 4M5 4h14' };
 
 // ===== theme (light / dark) =====
 const THEME_KEY = 'jjhhf_theme';
@@ -150,9 +154,12 @@ function collectAt(sub, pl, i) {
 }
 // when the saving period ends = deadline of the last instalment; payouts open after this moment
 const termEnd = (sub, pl) => { const S = sched(sub, pl); return S.due(S.n - 1); };
-const PAYOUT_NEEDS_PLAN = 'To request a payout you must have another plan actively running. Join a new plan first, then request this payout.';
-// the member's OTHER plans that are still running: active, and their saving period has not ended yet (plOf gives a subscription's plan)
-const runningOthers = (subs, sid, plOf) => subs.filter(o => o.id !== sid && o.status === 'active' && plOf(o).frequency && Date.now() < termEnd(o, plOf(o)).getTime());
+const PAYOUT_MIN_DAYS = 14;   // the other running plan must have been joined at least this long ago (pb_hooks/rules.js)
+const PAYOUT_NEEDS_PLAN = 'To request a payout you must have another plan that has been actively running for at least 2 weeks. Join a new plan and request this payout once it has run for 2 weeks.';
+// the member's OTHER plans that are still running: active, saving period not ended, and joined at least 2 weeks ago (plOf gives a subscription's plan)
+const runningOthers = (subs, sid, plOf, minDays = PAYOUT_MIN_DAYS) => subs.filter(o => o.id !== sid && o.status === 'active' && plOf(o).frequency && Date.now() < termEnd(o, plOf(o)).getTime() && Date.now() - parseTs(o.created).getTime() >= minDays * 864e5);
+// when the soonest of those other plans reaches 2 weeks (for the hint on the payout button), or null
+const payoutOpensAt = (subs, sid, plOf) => { const l = runningOthers(subs, sid, plOf, 0).map(o => parseTs(o.created).getTime() + PAYOUT_MIN_DAYS * 864e5); return l.length ? new Date(Math.min(...l)) : null; };
 const fmtDay = d => d.toLocaleDateString('en-GB', { timeZone: 'Africa/Lagos', day: 'numeric', month: 'short', year: 'numeric' });
 // how many instalments a payment record covers (older records without the field are estimated)
 const instOf = (p, pl) => p.installments || Math.max(1, Math.round(((p.amount || 0) - (p.penalty || 0)) / (pl.amount || 1)));
@@ -182,40 +189,84 @@ const covers = p => { const pl = p.expand?.subscription?.expand?.plan || {}; ret
 const feeRulesHTML = () => {
   const c = (t, d) => `<div class="bg-white border rounded-xl p-5"><h3 class="font-semibold text-slate-900 text-sm">${t}</h3><p class="text-sm text-slate-600 mt-1.5 leading-relaxed">${d}</p></div>`;
   return '<div class="grid md:grid-cols-2 gap-4 max-w-4xl">'
-    + c('Your wallet', `Every member has a <b>wallet</b> on the dashboard. You add money to it by bank transfer to your own fixed account number, and the transfer is confirmed automatically in real time. Every fee and every contribution is taken from your wallet.`)
-    + c(`Registration (joining) fee · ${naira(FEES.join)}`, `Before you can join any plan, ${naira(FEES.join)} is taken from your wallet. It is paid each time you join a plan, separately from your contributions. If your wallet is short, you will be asked to top up first.`)
-    + c('Cash and Foodie seasons', `Cash and Foodie savings run from <b>1 January to 30 November</b>. If you join part-way through the season (for example in March), you first pay the contributions that have fallen due <b>from January up to the day you join</b>, taken from your wallet together with the joining fee. There is no penalty on those.`)
+    + c('Your wallet', `Every member has a <b>wallet</b> on the dashboard. Open <b>Wallet</b>, enter an amount and pay with <b>Flutterwave</b> (card, bank transfer or USSD). No BVN or NIN is needed. Your wallet is credited as soon as the payment is confirmed, and every fee and contribution is taken from it.`)
+    + c(`Tax charge · ${naira(FEES.tax)} per deposit`, `Every payment into your wallet carries a <b>${naira(FEES.tax)} tax charge</b>, added at checkout. To put ${naira(3000)} in your wallet you pay <b>${naira(3000 + FEES.tax)}</b>; your wallet receives the full ${naira(3000)}.`)
+    + c(`Joining fee · ${naira(FEES.join)}`, `Taken from your wallet each time you join a plan, separately from your contributions. If your wallet is short, you are asked to deposit the difference first.`)
+    + c('Plan codes', `Every plan you join gives you a <b>plan code</b>. It becomes usable on a set day after you join and expires on a later day (both shown on the plan). Use it, or share it with someone else, in the optional <b>Plan code</b> box when joining a new plan. A code works <b>once only</b>; after that it shows as used, with who used it. An unused code shows as expired after its last day.`)
     + c(`T-shirt registration · ${naira(FEES.shirt)}`, `A <b>one-time</b> payment for your foundation t-shirt, taken from your wallet. It is only required <b>when you request a payout</b>. Once it is paid you become a <b>registered</b> member.`)
     + c(`Payout clearance fee · ${naira(FEES.clearance)}`, `Every payout request carries a ${naira(FEES.clearance)} clearance fee, taken from your wallet. Your request is sent to the admin as soon as it is paid.`)
-    + c('Another plan must be running', `Before you can request a payout from a plan, you must have <b>another plan actively running</b>: a plan you have joined whose saving period has not ended. If you have none, join a new plan first, then request your payout.`)
+    + c('Payout details on your Profile', `Save your <b>account name, bank, 10-digit account number and address</b> on the Profile page (you can edit them any time). Every payout is paid into that account; you don't type them with each request.`)
+    + c('Another plan must be running for 2 weeks', `Before you can request a payout from a plan, you must have <b>another plan that has been actively running for at least 2 weeks</b> (a plan you joined at least 14 days ago whose saving period has not ended).`)
     + '</div>';
 };
 const termsHTML = () => {
   const m = RULES.lateMultiplier, S = (n, t, body) => `<section class="bg-white border rounded-xl p-5 sm:p-6"><h2 class="font-semibold text-slate-900">${n}. ${t}</h2><div class="text-sm text-slate-600 mt-2 leading-relaxed space-y-2">${body}</div></section>`;
   return '<div class="space-y-4">'
-    + S(1, 'About these terms', `<p>${BRAND} is a community savings foundation where members contribute daily, weekly or monthly towards a cash or goods payout. By creating an account you confirm that you have read, understood and accepted these Terms and Conditions, including every fee listed below.</p>`)
-    + S(2, 'Your wallet and your account number', `<p>Every member has a <b>wallet</b> on their dashboard and a <b>fixed virtual bank account number</b> of their own. You fund your wallet by transferring money to that account number. The transfer is confirmed automatically, usually within moments, and the money appears in your wallet.</p><p>All fees and contributions are paid <b>from your wallet</b>. Money in your wallet stays yours until a fee or contribution is taken from it under these terms.</p>`)
-    + S(3, 'Registration (joining) fee', `<p>Before you can join any plan, a registration fee of <b>${naira(FEES.join)}</b> is deducted from your wallet. It is paid each time you join a plan and is separate from your contributions. If your wallet does not hold enough, you cannot join until you top up.</p>`)
-    + S(4, 'Plans and seasons', `<p>We offer three kinds of plan: <b>Cash</b>, <b>Groceries</b> and <b>Foodie</b>. Every plan shows its contribution amount, how often you pay, its saving period, the number of payments and the payout.</p><p><b>Cash and Foodie</b> savings run from <b>1 January to 30 November</b>. If you join after the season has started, you must first pay the contributions that fell due from 1 January up to the day you join. This catch-up is calculated automatically, is taken from your wallet together with the registration fee, and carries no penalty. <b>Groceries</b> plans run from the day you join, for the number of payments shown on the plan.</p>`)
-    + S(5, 'Automatic payments, deadlines and late penalties', `<p>You do not pay each contribution by hand. At the start of each payment period your plan's contribution is taken from your wallet automatically. If you have several plans and your wallet cannot cover them all, plans are served from the oldest deadline first; a plan that cannot be covered <b>waits</b> and is paid automatically as soon as you top up.</p><p>All deadlines use Lagos time (WAT). Daily plans are due before <b>${RULES.cutoffHour}:00 noon</b> each day. Weekly plans are due by <b>Friday ${RULES.cutoffHour}:00 noon</b>. Monthly plans are due by the <b>${RULES.monthlyGraceDay}nd day of the following month</b>.</p><p>A contribution that is still unpaid after its deadline costs double when it is collected (for example ${naira(100)} becomes ${naira(100 * m)}). The extra amount is a penalty: it does not count towards your savings or payout. Keep enough in your wallet to avoid it.</p>`)
+    + S(1, 'About these terms', `<p>${BRAND} is a community savings foundation where members contribute daily or weekly towards a grocery payout. By creating an account you confirm that you have read, understood and accepted these Terms and Conditions, including every fee listed below.</p>`)
+    + S(2, 'Your wallet and deposits', `<p>Every member has a <b>wallet</b> on their dashboard. You fund it from the Wallet page by paying through <b>Flutterwave</b> (card, bank transfer or USSD). No BVN or NIN is required. Your wallet is credited once Flutterwave confirms the payment, usually within moments.</p><p>Every deposit carries a <b>tax charge of ${naira(FEES.tax)}</b>, added to the amount you pay at checkout (for example, to deposit ${naira(3000)} you pay ${naira(3000 + FEES.tax)}). The tax charge is not added to your wallet and is not refundable.</p><p>All fees and contributions are paid <b>from your wallet</b>. Money in your wallet stays yours until a fee or contribution is taken from it under these terms.</p>`)
+    + S(3, 'Plans', `<p>We offer <b>Grocery plans</b> of <b>4, 8, 12 and 25 weeks</b>. Every plan shows its contribution amount, how often you pay (daily or weekly), its length, the number of payments and the payout. A plan runs from the day you join.</p><p>A joining fee of <b>${naira(FEES.join)}</b> is taken from your wallet each time you join a plan, separately from your contributions.</p>`)
+    + S(4, 'Plan codes', `<p>Each time you join a plan, a unique <b>plan code</b> is created for that plan. The code becomes usable on a set day after you join and expires at the end of a later day; both are chosen by the foundation for each plan and shown on the plan.</p><p>While the code is usable, it can be entered (optionally) when joining a new plan, by you or by anyone you share it with. Each code can be used <b>once only</b>. Once used, it is marked as used, and both you and the foundation can see who used it and when. A code that is not used in time is marked as expired and cannot be used afterwards.</p>`)
+    + S(5, 'Automatic payments, deadlines and late penalties', `<p>You do not pay each contribution by hand. At the start of each payment period your plan's contribution is taken from your wallet automatically. If you have several plans and your wallet cannot cover them all, plans are served from the oldest deadline first; a plan that cannot be covered <b>waits</b> and is paid automatically as soon as you deposit.</p><p>All deadlines use Lagos time (WAT). Daily plans are due before <b>${RULES.cutoffHour}:00 noon</b> each day. Weekly plans are due by <b>Friday ${RULES.cutoffHour}:00 noon</b>.</p><p>A contribution that is still unpaid after its deadline costs double when it is collected (for example ${naira(1000)} becomes ${naira(1000 * m)}). The extra amount is a penalty: it does not count towards your savings or payout. Keep enough in your wallet to avoid it.</p>`)
     + S(6, 'The t-shirt fee', `<p>Every member pays a one-time fee of <b>${naira(FEES.shirt)}</b> for the foundation t-shirt, taken from the wallet. You can use your dashboard, join plans and make contributions without paying it. It only becomes payable <b>when you want to request a payout</b>. It is paid once only.</p>`)
-    + S(7, 'Payouts and the clearance fee', `<p>You can request a payout from a plan only when <b>all</b> of the following are true:</p><ul class="list-disc pl-5 space-y-1"><li>the plan is fully paid and its saving period has ended;</li><li><b>you have another plan actively running</b>: a plan you have joined, other than the one you are collecting, whose saving period has not yet ended. If you have none, you must join a new plan before you can request the payout;</li><li>you have paid the one-time ${naira(FEES.shirt)} t-shirt fee (see section 6).</li></ul><p>Every payout request also carries a clearance fee of <b>${naira(FEES.clearance)}</b>, taken from your wallet. Your request is sent as soon as it is paid.</p>`)
-    + S(8, 'Records', `<p>Every top-up, fee and contribution is recorded in your wallet history on your dashboard, and you can see every payment and payout there.</p>`)
+    + S(7, 'Payouts and the clearance fee', `<p>You can request a payout from a plan only when <b>all</b> of the following are true:</p><ul class="list-disc pl-5 space-y-1"><li>the plan is fully paid and its length has ended;</li><li><b>you have another plan that has been actively running for at least 2 weeks</b>: a plan you joined at least 14 days earlier, other than the one you are collecting, whose saving period has not yet ended;</li><li>you have paid the one-time ${naira(FEES.shirt)} t-shirt fee (see section 6);</li><li>your <b>payout details</b> (account name, bank, account number and address) are saved on your Profile page. Payouts are paid into that account, so keep it up to date.</li></ul><p>Every payout request also carries a clearance fee of <b>${naira(FEES.clearance)}</b>, taken from your wallet. Your request is sent as soon as it is paid.</p>`)
+    + S(8, 'Records', `<p>Every deposit, fee and contribution is recorded in your wallet history on your dashboard, and you can see every payment, payout and plan code there.</p>`)
     + S(9, 'Questions', `<p>For any question about these terms, contact customer support on <b>${SUPPORT_PHONE}</b>.</p>`)
     + '</div>';
 };
 const rulesHTML = () => {
   const m = RULES.lateMultiplier, c = (t, d) => `<div class="bg-white border rounded-xl p-5"><h3 class="font-semibold text-slate-900 text-sm">${t}</h3><p class="text-sm text-slate-600 mt-1.5 leading-relaxed">${d}</p></div>`;
-  return '<h2 class="text-sm font-semibold text-slate-900 mb-3">Fees and registration</h2>' + feeRulesHTML() + '<h2 class="text-sm font-semibold text-slate-900 mt-8 mb-3">Automatic payments and deadlines</h2><div class="grid md:grid-cols-2 gap-4 max-w-4xl">'
-    + c('Paid from your wallet', `You never pay a contribution by hand. When a payment period opens, the contribution is taken from your wallet. Keep your wallet topped up and your plans run by themselves.`)
-    + c('Not enough in the wallet?', `If you have, say, three plans of ${naira(2000)} a day and ${naira(5000)} in your wallet, two plans are paid and the third <b>waits</b>. The moment you top up, it is paid automatically.`)
-    + c('Daily plans', `Taken at the start of each day and due before <b>${RULES.cutoffHour}:00 noon</b>. Still unpaid after noon, it costs double: ${naira(100)} becomes ${naira(100 * m)}.`)
+  return '<h2 class="text-sm font-semibold text-slate-900 mb-3">Wallet, fees and plan codes</h2>' + feeRulesHTML() + '<h2 class="text-sm font-semibold text-slate-900 mt-8 mb-3">Plans, automatic payments and deadlines</h2><div class="grid md:grid-cols-2 gap-4 max-w-4xl">'
+    + c('Grocery plans', `Plans run for <b>4, 8, 12 or 25 weeks</b> from the day you join, with daily or weekly contributions. Each plan shows its amount, number of payments and payout.`)
+    + c('Paid from your wallet', `You never pay a contribution by hand. When a payment period opens, the contribution is taken from your wallet. Keep your wallet funded and your plans run by themselves.`)
+    + c('Not enough in the wallet?', `If you have, say, three plans of ${naira(2000)} a week and ${naira(5000)} in your wallet, two plans are paid and the third <b>waits</b>. The moment you deposit, it is paid automatically.`)
+    + c('Daily plans', `Taken at the start of each day and due before <b>${RULES.cutoffHour}:00 noon</b>. Still unpaid after noon, it costs double: ${naira(500)} becomes ${naira(500 * m)}.`)
     + c('Weekly plans', `Taken from Monday and due by <b>Friday ${RULES.cutoffHour}:00 noon</b>. After that the week's payment is doubled.`)
-    + c('Monthly plans', `Each month's payment is due by the <b>${RULES.monthlyGraceDay}nd day of the following month</b>. After that it is doubled.`)
     + c('Late penalty', `Every unpaid contribution carries its own penalty once its deadline has passed. A penalty is a fee: it does not count towards your savings or payout.`)
-    + c('Joining mid-season', `Cash and Foodie plans run from 1 January to 30 November. If you join in March, the contributions from January up to the day you join are worked out for you and taken from your wallet with the joining fee, with no penalty.`)
-    + c('Your first payment (Groceries)', `Daily: today before noon if you join before noon, otherwise tomorrow before noon. Weekly: the coming Friday noon (or the one after, if it has passed). Monthly: the 2nd of next month.`)
-    + c('Time and confirmation', `All deadlines use Lagos time (WAT), whatever your device clock says. Transfers into your account number are confirmed automatically in real time.`) + '</div>';
+    + c('Your first payment', `Daily: today before noon if you join before noon, otherwise tomorrow before noon. Weekly: the coming Friday noon (or the one after, if it has passed).`)
+    + c('Time and confirmation', `All deadlines use Lagos time (WAT), whatever your device clock says. Deposits are confirmed automatically by Flutterwave.`) + '</div>';
+};
+
+// ===== payout details (kept on the member's profile, used for every payout request) =====
+const NG_BANKS = ['Access Bank', 'Citibank', 'Ecobank', 'Fidelity Bank', 'First Bank of Nigeria', 'First City Monument Bank (FCMB)', 'Globus Bank', 'Guaranty Trust Bank (GTBank)', 'Heritage Bank', 'Jaiz Bank', 'Keystone Bank', 'Kuda Bank', 'Lotus Bank', 'Moniepoint MFB', 'OPay', 'PalmPay', 'Parallex Bank', 'Polaris Bank', 'Providus Bank', 'Stanbic IBTC Bank', 'Standard Chartered', 'Sterling Bank', 'SunTrust Bank', 'Taj Bank', 'Titan Trust Bank', 'Union Bank', 'United Bank for Africa (UBA)', 'Unity Bank', 'VFD Microfinance Bank', 'Wema Bank (ALAT)', 'Zenith Bank'];
+const payoutReady = u => !!(u && u.bank_account_name && u.bank_name && /^\d{10}$/.test(u.bank_account_number || '') && u.address);
+// the details block shown to members (payout pop-up) and admins (payouts, member page)
+const payoutDetails = u => payoutReady(u) ? `<dl class="text-sm divide-y">${[['Account name', u.bank_account_name], ['Bank', u.bank_name], ['Account number', '<span class="font-mono tracking-wider">' + esc(u.bank_account_number) + '</span>'], ['Address', u.address]].map(([k, v]) => `<div class="flex justify-between gap-4 py-1.5"><dt class="text-slate-500 shrink-0">${k}</dt><dd class="font-medium text-slate-900 text-right break-words min-w-0">${k === 'Account number' ? v : esc(v)}</dd></div>`).join('')}</dl>` : '<p class="text-sm text-amber-800">No payout details on the profile yet.</p>';
+
+// ===== plan codes (display) =====
+// where a membership's code stands right now: none | soon | open | used | expired
+const codeStatus = (sub, now = Date.now()) => !sub.code ? 'none' : sub.code_used_at ? 'used' : now >= parseTs(sub.code_until).getTime() ? 'expired' : now < parseTs(sub.code_from).getTime() ? 'soon' : 'open';
+const lastDay = sub => fmtDay(new Date(parseTs(sub.code_until).getTime() - 1));            // code_until is the first moment after the last valid day
+const codeBadge = sub => ({ soon: '<span class="inline-flex px-2 py-0.5 rounded-md text-xs font-medium ring-1 ring-inset bg-slate-50 text-slate-600 ring-slate-200">Not open yet</span>', open: '<span class="inline-flex px-2 py-0.5 rounded-md text-xs font-medium ring-1 ring-inset bg-emerald-50 text-emerald-800 ring-emerald-200">Usable</span>', used: '<span class="inline-flex px-2 py-0.5 rounded-md text-xs font-medium ring-1 ring-inset bg-blue-50 text-blue-700 ring-blue-200">Used</span>', expired: '<span class="inline-flex px-2 py-0.5 rounded-md text-xs font-medium ring-1 ring-inset bg-red-50 text-red-700 ring-red-200">Expired</span>' })[codeStatus(sub)] || '<span class="text-slate-400">—</span>';
+// the code panel shown on a member's plan card
+function codePanel(sub) {
+  const st = codeStatus(sub); if (st === 'none') return '';
+  const code = `<span class="font-mono font-semibold tracking-wider ${st === 'expired' || st === 'used' ? 'line-through text-slate-400' : 'text-slate-900'}">${esc(sub.code)}</span>`;
+  const body = {
+    soon: `<p class="text-sm text-slate-600">Your plan code opens on <b>${fmtDay(parseTs(sub.code_from))}</b> and can be used until the end of <b>${lastDay(sub)}</b>.</p>`,
+    open: `<div class="flex flex-wrap items-center gap-3">${code}<button type="button" onclick="copyCode('${esc(sub.code)}')" class="${btn2} !py-1 !px-2.5 text-xs">Copy</button></div><p class="text-xs text-slate-500 mt-1.5">Use it (or share it) when joining a new plan, before the end of <b class="text-slate-700">${lastDay(sub)}</b>. It works once.</p>`,
+    used: `<div class="flex flex-wrap items-center gap-3">${code}${codeBadge(sub)}</div><p class="text-xs text-slate-500 mt-1.5">Used by <b class="text-slate-700">${esc(sub.code_used_name || 'a member')}</b> on ${date(sub.code_used_at)}.</p>`,
+    expired: `<div class="flex flex-wrap items-center gap-3">${code}${codeBadge(sub)}</div><p class="text-xs text-slate-500 mt-1.5">Expired at the end of ${lastDay(sub)} without being used.</p>`,
+  }[st];
+  return `<div class="mt-4 rounded-lg border ${st === 'open' ? 'bg-emerald-50 border-emerald-200' : 'bg-slate-50'} p-3"><p class="text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-1.5">Plan code</p>${body}</div>`;
+}
+window.copyCode = c => navigator.clipboard?.writeText(c).then(() => toast('Code copied: ' + c), () => toast(c));
+
+// ===== deposits through Flutterwave Checkout (amount + ₦100 tax charge) =====
+// Starts a deposit and sends the member to Flutterwave; they come back to this page and dashboard.html settles it.
+async function startDeposit(amount) {
+  amount = Math.round(Number(amount) || 0);
+  if (amount < 100) throw new Error('The smallest deposit is ' + naira(100) + '.');
+  const r = await pb.send('/api/jjhhf/wallet/deposit', { method: 'POST', body: { amount, redirect: location.origin + location.pathname } });
+  if (r.demo) { toast(naira(amount) + ' added to your wallet (demo).'); refresh(); return; }
+  location.href = r.link;
+}
+// the "you pay" summary under an amount box
+const depositSummary = a => { a = Math.max(0, Math.round(+a || 0)); return `<div class="flex justify-between py-1"><span class="text-slate-500">Into your wallet</span><span class="font-medium">${naira(a)}</span></div><div class="flex justify-between py-1"><span class="text-slate-500">Tax charge</span><span class="font-medium">${naira(FEES.tax)}</span></div><div class="flex justify-between py-1.5 border-t mt-1 text-base"><span class="font-semibold text-slate-900">You pay</span><span class="font-semibold text-slate-900">${naira(a + FEES.tax)}</span></div>`; };
+// pop-up used when the wallet is short (e.g. joining a plan): prefilled with the shortfall
+window.depositBox = (amount = '') => {
+  modal('Deposit with Flutterwave', `<label class="block text-sm"><span class="text-slate-600">Amount to add to your wallet (₦)</span><input name="amount" type="number" min="100" step="1" value="${esc(amount)}" required class="${inp} mt-1"></label><div id="dsum" class="text-sm rounded-lg border bg-slate-50 px-3 py-2">${depositSummary(amount)}</div><p class="text-xs text-slate-500">A ${naira(FEES.tax)} tax charge is added to every deposit. You pay on Flutterwave's secure page (card, bank transfer or USSD) and come back here.</p>`,
+    async d => { await startDeposit(d.amount); }, 'Continue to Flutterwave');
+  const i = document.querySelector('[data-ui="modal"] [name="amount"]'); i.oninput = () => { $('#dsum').innerHTML = depositSummary(i.value); }; i.focus();
 };
 
 // Pays a fee (or joins a plan) from the member's wallet: the server decides the amount and checks the balance (see pb_hooks/wallet.js and fees.js).
@@ -313,36 +364,35 @@ function confirmBox({ title, message = '', confirmText = 'Confirm', cancelText =
 }
 
 // ===== plan explorer: search, filters, sort, detail drawer with previous/next =====
-const PS = { q: '', cat: 'all', freq: 'all', bud: 'all', sort: 'amount-asc' };
+const PS = { q: '', wk: 'all', freq: 'all', bud: 'all', sort: 'amount-asc' };
 const BUD = { all: ['Any budget', () => true], a: ['Up to ₦500', p => p.amount <= 500], b: ['₦501 – ₦2,000', p => p.amount > 500 && p.amount <= 2000], c: ['Above ₦2,000', p => p.amount > 2000] };
 const SORT = { 'amount-asc': ['Amount: low to high', (a, b) => a.amount - b.amount], 'amount-desc': ['Amount: high to low', (a, b) => b.amount - a.amount], 'payout-desc': ['Payout: high to low', (a, b) => payoutOf(b) - payoutOf(a)], name: ['Name: A to Z', (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true })] };
 const matchQ = (p, q) => [p.name, p.description, p.category, p.frequency, p.amount].join(' ').toLowerCase().includes(q.toLowerCase());
-const filterPlans = l => l.filter(p => (PS.cat === 'all' || p.category === PS.cat) && (PS.freq === 'all' || p.frequency === PS.freq) && BUD[PS.bud][1](p) && (!PS.q.trim() || matchQ(p, PS.q.trim()))).sort(SORT[PS.sort][1]);
+const filterPlans = l => l.filter(p => (PS.wk === 'all' || String(weeksOf(p)) === PS.wk) && (PS.freq === 'all' || p.frequency === PS.freq) && BUD[PS.bud][1](p) && (!PS.q.trim() || matchQ(p, PS.q.trim()))).sort(SORT[PS.sort][1]);
 const opts = (o, v) => Object.entries(o).map(([k, x]) => `<option value="${k}" ${k === v ? 'selected' : ''}>${Array.isArray(x) ? x[0] : x}</option>`).join('');
 
 const planCard = (p, i, quick = '') => `<div onclick="openPlan(${i})" class="cursor-pointer bg-white border rounded-xl p-5 flex flex-col hover:border-emerald-700 hover:shadow-sm transition">
   <div class="flex items-center justify-between"><span class="text-xs font-medium uppercase tracking-wide text-slate-500">${p.category} · ${p.frequency}</span>${p.active === false ? badge('cancelled').replace('Cancelled', 'Hidden') : ''}</div>
   <h3 class="font-semibold text-slate-900 mt-2">${esc(p.name)}</h3>
   <p class="mt-3 text-2xl font-semibold text-slate-900">${naira(p.amount)}<span class="text-sm font-normal text-slate-500"> / ${FQ[p.frequency]}</span></p>
-  <dl class="mt-3 text-sm space-y-1"><div class="flex justify-between"><dt class="text-slate-500">Duration</dt><dd class="text-right">${monthsLabel(p)} · ${nPay(p)} payments</dd></div><div class="flex justify-between"><dt class="text-slate-500">Total payout</dt><dd class="font-medium">${naira(payoutOf(p))}</dd></div></dl>
+  <dl class="mt-3 text-sm space-y-1"><div class="flex justify-between"><dt class="text-slate-500">Length</dt><dd class="text-right">${monthsLabel(p)} · ${nPay(p)} payments</dd></div><div class="flex justify-between"><dt class="text-slate-500">Total payout</dt><dd class="font-medium">${naira(payoutOf(p))}</dd></div></dl>
   ${p.description ? `<p class="mt-3 text-xs text-slate-500 line-clamp-2">${esc(p.description)}</p>` : ''}
   <div class="mt-auto pt-4 flex gap-2" onclick="event.stopPropagation()">${quick}</div></div>`;
 
 function explorer(m, all, o = {}) {
-  const n = k => all.filter(p => p.category === k).length;
-  m.innerHTML = `<div class="md:sticky md:top-16 md:z-10 -mx-4 sm:-mx-8 px-4 sm:px-8 py-3 mb-5 bg-slate-50/95 backdrop-blur border-b space-y-3">
+    m.innerHTML = `<div class="md:sticky md:top-16 md:z-10 -mx-4 sm:-mx-8 px-4 sm:px-8 py-3 mb-5 bg-slate-50/95 backdrop-blur border-b space-y-3">
     <div class="grid grid-cols-2 sm:flex sm:flex-wrap gap-2">
       <div class="relative col-span-2 sm:flex-1 sm:min-w-[220px]"><span class="absolute left-3 top-2.5 text-slate-400">${ic(IC.search)}</span><input id="pq" value="${esc(PS.q)}" placeholder="Search by name, amount or item…" class="${inp} pl-10"></div>
       <select id="pf" class="${inp} sm:!w-auto">${opts({ all: 'All frequencies', daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly' }, PS.freq)}</select>
       <select id="pb" class="${inp} sm:!w-auto">${opts(BUD, PS.bud)}</select>
       <select id="ps" class="${inp} col-span-2 sm:col-auto sm:!w-auto">${opts(SORT, PS.sort)}</select></div>
-    <div class="flex items-center justify-between gap-3"><div id="pt" class="flex gap-1.5 overflow-x-auto min-w-0">${[['all', 'All plans', all.length], ['grocery', 'Grocery', n('grocery')], ['cash', 'Cash savings', n('cash')], ['foodie', 'Foodie', n('foodie')]].map(c => `<button data-c="${c[0]}" class="whitespace-nowrap px-3 py-1.5 rounded-full text-sm font-medium border">${c[1]} <span class="opacity-60">${c[2]}</span></button>`).join('')}</div>
+    <div class="flex items-center justify-between gap-3"><div id="pt" class="flex gap-1.5 overflow-x-auto min-w-0">${[['all', 'All lengths', all.length], ...[...new Set([...PLAN_WEEKS, ...all.map(weeksOf)])].sort((a, b) => a - b).filter(w => all.some(p => weeksOf(p) === w)).map(w => [String(w), w + ' weeks', all.filter(p => weeksOf(p) === w).length])].map(c => `<button data-c="${c[0]}" class="whitespace-nowrap px-3 py-1.5 rounded-full text-sm font-medium border">${c[1]} <span class="opacity-60">${c[2]}</span></button>`).join('')}</div>
     <p class="text-sm text-slate-500 whitespace-nowrap"><span id="pc"></span> <button id="px" class="ml-2 text-emerald-800 font-medium hover:underline">Clear</button></p></div></div><div id="pr"></div>`;
   const paint = () => {
     const l = window._pl = filterPlans(all);
-    document.querySelectorAll('#pt button').forEach(b => { const on = b.dataset.c === PS.cat; b.className = 'whitespace-nowrap px-3 py-1.5 rounded-full text-sm font-medium border ' + (on ? 'bg-emerald-800 text-white border-emerald-800' : 'bg-white text-slate-600 hover:bg-slate-100'); });
+    document.querySelectorAll('#pt button').forEach(b => { const on = b.dataset.c === PS.wk; b.className = 'whitespace-nowrap px-3 py-1.5 rounded-full text-sm font-medium border ' + (on ? 'bg-emerald-800 text-white border-emerald-800' : 'bg-white text-slate-600 hover:bg-slate-100'); });
     $('#pc').textContent = `Showing ${l.length} of ${all.length}`;
-    $('#px').classList.toggle('hidden', !PS.q && PS.cat === 'all' && PS.freq === 'all' && PS.bud === 'all');
+    $('#px').classList.toggle('hidden', !PS.q && PS.wk === 'all' && PS.freq === 'all' && PS.bud === 'all');
     $('#pr').innerHTML = !l.length ? '<div class="bg-white border border-dashed rounded-xl p-12 text-center text-sm text-slate-500">No plans match your search. Try clearing a filter.</div>'
       : o.cols ? table(o.cols.heads, l.map(o.cols.row))
       : `<div class="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">${l.map((p, i) => planCard(p, i, o.quick ? o.quick(p) : '')).join('')}</div>`;
@@ -350,8 +400,8 @@ function explorer(m, all, o = {}) {
   };
   $('#pq').oninput = e => { PS.q = e.target.value; paint(); };
   [['pf', 'freq'], ['pb', 'bud'], ['ps', 'sort']].forEach(([id, k]) => $('#' + id).onchange = e => { PS[k] = e.target.value; paint(); });
-  $('#pt').onclick = e => { const b = e.target.closest('button'); if (b) { PS.cat = b.dataset.c; paint(); } };
-  $('#px').onclick = () => { Object.assign(PS, { q: '', cat: 'all', freq: 'all', bud: 'all' }); explorer(m, all, o); };
+  $('#pt').onclick = e => { const b = e.target.closest('button'); if (b) { PS.wk = b.dataset.c; paint(); } };
+  $('#px').onclick = () => { Object.assign(PS, { q: '', wk: 'all', freq: 'all', bud: 'all' }); explorer(m, all, o); };
   paint();
 }
 
@@ -367,7 +417,7 @@ window.openPlan = i => {
     <div class="h-16 px-5 border-b flex items-center justify-between shrink-0"><div class="flex items-center gap-2"><button onclick="openPlan(${i - 1})" ${i ? '' : 'disabled'} class="${dBtn}" aria-label="Previous plan">‹</button><button onclick="openPlan(${i + 1})" ${i < L.length - 1 ? '' : 'disabled'} class="${dBtn}" aria-label="Next plan">›</button><span class="ml-1 text-sm text-slate-500">Plan ${i + 1} of ${L.length}</span></div><button onclick="closePlan()" class="${dBtn}" aria-label="Close">✕</button></div>
     <div class="flex-1 overflow-y-auto p-6"><p class="text-xs font-medium uppercase tracking-wide text-slate-500">${p.category} · ${p.frequency}</p><h2 class="text-xl font-semibold text-slate-900 mt-1">${esc(p.name)}</h2>
       <p class="mt-4 text-3xl font-semibold">${naira(p.amount)}<span class="text-base font-normal text-slate-500"> / ${FQ[p.frequency]}</span></p>
-      <dl class="mt-5 divide-y border-y">${row('Saving period', monthsLabel(p))}${row('Number of payments', nPay(p))}${row('Total you contribute', naira(totalOf(p)))}${row('Total payout', naira(payoutOf(p)))}${row('Status', p.active === false ? 'Hidden' : 'Open for enrolment')}</dl>
+      <dl class="mt-5 divide-y border-y">${row('Plan length', monthsLabel(p))}${codeDays(p) ? row('Plan code usable', codeDays(p) + ' after joining') : ''}${row('Number of payments', nPay(p))}${row('Total you contribute', naira(totalOf(p)))}${row('Total payout', naira(payoutOf(p)))}${row('Status', p.active === false ? 'Hidden' : 'Open for enrolment')}</dl>
       ${p.description ? `<h3 class="mt-6 text-sm font-semibold">What's included</h3><p class="mt-2 text-sm text-slate-600 leading-relaxed">${esc(p.description)}</p>` : ''}
       <div class="mt-8 flex gap-2">${nb(i - 1, '← Previous')}${nb(i + 1, 'Next →')}</div></div>
     <div class="p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] border-t shrink-0">${(window.PLAN_ACTION || (() => ''))(p)}</div></aside>`;
@@ -376,7 +426,8 @@ window.openPlan = i => {
 
 // ===== app shell: sidebar, top bar with global plan search, keyboard shortcuts =====
 // deps: { viewId: [collections it shows] }; a live change to any other collection does not re-draw that view. minGap: least ms between two re-draws.
-function layout({ brand, sub = 'Helping Hands Foundation', nav, views, alias = {}, support = false, badges = null, live = [], onLive = null, chip = null, deps = {}, minGap = 1500 }) {
+// search: { placeholder, run: async q => [{ label, sub, href }] } replaces the header's plan search (the admin panel uses it to find members)
+function layout({ brand, sub = 'Helping Hands Foundation', nav, views, alias = {}, support = false, badges = null, live = [], onLive = null, chip = null, deps = {}, minGap = 1500, search = null }) {
   const u = pb.authStore.record, ini = (u.name || u.email || '?').trim()[0].toUpperCase();
   $('#app').innerHTML = `<div class="min-h-screen lg:flex">
   <div id="ov" class="fixed inset-0 bg-slate-900/40 z-30 hidden lg:hidden"></div>
@@ -389,7 +440,7 @@ function layout({ brand, sub = 'Helping Hands Foundation', nav, views, alias = {
     <header class="sticky top-0 z-20 h-16 bg-white/90 backdrop-blur border-b flex items-center gap-3 px-4 sm:px-8">
       <button id="mb" class="relative lg:hidden p-2 -ml-2 text-slate-600" aria-label="Menu">${ic(IC.menu)}<span id="mbd" class="hidden absolute top-1.5 right-1 w-2.5 h-2.5 rounded-full bg-red-600"></span></button>
       <span id="ttl" class="hidden md:block text-sm font-medium text-slate-900 w-44 shrink-0"></span>
-      <div class="relative flex-1 max-w-md"><span class="absolute left-3 top-2.5 text-slate-400">${ic(IC.search)}</span><input id="gs" autocomplete="off" placeholder="Jump to a plan…  ( / )" class="${inp} pl-10 bg-slate-50"><div id="gr" class="hidden absolute left-0 right-0 top-11 bg-white border rounded-xl shadow-lg overflow-hidden divide-y"></div></div>
+      <div class="relative flex-1 max-w-md"><span class="absolute left-3 top-2.5 text-slate-400">${ic(IC.search)}</span><input id="gs" autocomplete="off" placeholder="${esc(search?.placeholder || 'Jump to a plan…  ( / )')}" class="${inp} pl-10 bg-slate-50"><div id="gr" class="hidden absolute left-0 right-0 top-11 bg-white border rounded-xl shadow-lg overflow-hidden divide-y"></div></div>
       <div class="ml-auto flex items-center gap-3">${chip ? '<a href="#wallet" id="wchip" class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border bg-white text-sm font-medium text-slate-700 hover:bg-slate-50" title="Your wallet"><span class="text-slate-500">Wallet</span><span id="wbal">…</span></a>' : ''}<button id="tg" onclick="toggleTheme()" class="p-2 rounded-lg text-slate-600 hover:bg-slate-100" aria-label="Switch between light and dark mode" title="Light / dark mode">${ic(document.documentElement.classList.contains('dark') ? IC.sun : IC.moon)}</button><div class="hidden sm:block text-right leading-tight"><p class="text-sm font-medium text-slate-900">${esc(u.name || u.email)}</p><p class="text-xs text-slate-500">${u.role === 'admin' ? 'Administrator' : 'Member'}</p></div><div class="w-9 h-9 rounded-full bg-accent-400 text-brand-950 grid place-items-center text-sm font-bold">${esc(ini)}</div></div>
     </header>
     <main id="main" class="p-4 pb-28 sm:p-8 sm:pb-10 max-w-6xl mx-auto"></main>
@@ -400,14 +451,25 @@ function layout({ brand, sub = 'Helping Hands Foundation', nav, views, alias = {
   let ALL = null;
   const loadAll = async () => ALL || (ALL = (await pb.collection('plans').getFullList({ sort: 'category,frequency,amount' })).filter(p => u.role === 'admin' || p.active !== false));
   const gs = $('#gs'), gr = $('#gr');
-  gs.oninput = async () => {
+  let gt;
+  if (search) gs.oninput = () => {
+    clearTimeout(gt); const q = gs.value.trim(); if (!q) return gr.classList.add('hidden');
+    gt = setTimeout(async () => {
+      let m = []; try { m = await search.run(q); } catch (e) { }
+      if (gs.value.trim() !== q) return;
+      gr.innerHTML = m.length ? m.map(x => `<a href="${x.href}" class="block px-4 py-2.5 hover:bg-slate-50 text-sm"><span class="block font-medium text-slate-900 truncate">${esc(x.label)}</span>${x.sub ? `<span class="block text-xs text-slate-500 truncate">${esc(x.sub)}</span>` : ''}</a>`).join('') : '<p class="px-4 py-3 text-sm text-slate-500">No matches</p>';
+      gr.classList.remove('hidden');
+      gr.querySelectorAll('a').forEach(a => a.onclick = () => { gr.classList.add('hidden'); gs.value = ''; });
+    }, 300);
+  };
+  else gs.oninput = async () => {
     const q = gs.value.trim(); if (!q) return gr.classList.add('hidden');
     const all = await loadAll(), m = all.filter(p => matchQ(p, q)).slice(0, 8);
     gr.innerHTML = m.length ? m.map(p => `<button data-id="${p.id}" class="w-full text-left px-4 py-2.5 hover:bg-slate-50 flex justify-between gap-3 text-sm"><span class="truncate">${esc(p.name)}</span><span class="text-slate-500 whitespace-nowrap">${naira(p.amount)}/${FQ[p.frequency]}</span></button>`).join('') : '<p class="px-4 py-3 text-sm text-slate-500">No matching plans</p>';
     gr.classList.remove('hidden');
     gr.querySelectorAll('button').forEach(b => b.onclick = () => { window._pl = all; openPlan(all.findIndex(p => p.id === b.dataset.id)); gr.classList.add('hidden'); gs.value = ''; });
   };
-  gs.onkeydown = e => { if (e.key === 'Enter') gr.querySelector('button')?.click(); if (e.key === 'Escape') { gr.classList.add('hidden'); gs.blur(); } };
+  gs.onkeydown = e => { if (e.key === 'Enter') gr.querySelector('button,a')?.click(); if (e.key === 'Escape') { gr.classList.add('hidden'); gs.blur(); } };
   addEventListener('click', e => { if (!e.target.closest('#gs,#gr')) gr.classList.add('hidden'); });
   addEventListener('keydown', e => {
     const typing = /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName), cur = window._cur;

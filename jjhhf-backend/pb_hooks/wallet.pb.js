@@ -1,51 +1,39 @@
 /// <reference path="../pb_data/types.d.ts" />
 // Wallet routes. NOTE: PocketBase handlers are isolated, so shared code is loaded with require() inside each handler.
 
-// 1) The member asks for their fixed virtual account (created once; Flutterwave needs a BVN or NIN for it, which is not stored).
-routerAdd("POST", "/api/jjhhf/wallet/account", (e) => {
-  const F = require(`${__hooks}/flutterwave.js`);
+// 1) Deposit: the member chooses an amount; the server records it and returns a Flutterwave Checkout link (amount + ₦100 tax charge).
+routerAdd("POST", "/api/jjhhf/wallet/deposit", (e) => {
+  const D = require(`${__hooks}/deposits.js`);
   const body = e.requestInfo().body || {};
-  const user = $app.findRecordById("users", e.auth.id);
-  if (user.getString("va_number")) return e.json(200, { number: user.getString("va_number"), bank: user.getString("va_bank") });
-
-  const idType = String(body.id_type || "bvn").toLowerCase() === "nin" ? "nin" : "bvn";
-  const idNumber = String(body.id_number || "").replace(/\s+/g, "");
-  if (!/^\d{11}$/.test(idNumber)) throw new BadRequestError("Enter your 11-digit " + idType.toUpperCase() + ".");
-
-  const acct = F.createAccount(user, idType, idNumber);
-  const fresh = $app.findRecordById("users", e.auth.id);
-  fresh.set("va_number", acct.number); fresh.set("va_bank", acct.bank); fresh.set("va_ref", acct.ref);
-  $app.save(fresh);
-  return e.json(200, { number: acct.number, bank: acct.bank });
+  return e.json(200, D.start($app, e.auth.id, body.amount, String(body.redirect || "")));
 }, $apis.requireAuth());
 
-// 2) Webhook: Flutterwave calls this when a transfer lands in a member's virtual account. This is what tops the wallet up in real time.
-//    The body is never trusted: we check the signature, ask Flutterwave to verify the transaction, then credit the wallet exactly once.
+// 2a) Back from Flutterwave: the browser passes the reference; the server asks Flutterwave itself and credits the wallet once.
+routerAdd("POST", "/api/jjhhf/wallet/verify", (e) => {
+  const D = require(`${__hooks}/deposits.js`);
+  const body = e.requestInfo().body || {}, ref = String(body.tx_ref || "");
+  let d; try { d = $app.findFirstRecordByData("deposits", "tx_ref", ref); } catch (_) { throw new BadRequestError("Deposit not found."); }
+  if (d.getString("user") !== e.auth.id && e.auth.getString("role") !== "admin") throw new ForbiddenError("That is not your deposit.");
+  const status = D.settle(ref, body.transaction_id ? String(body.transaction_id) : "");
+  const x = $app.findRecordById("deposits", d.id);
+  return e.json(200, { status, amount: x.getFloat("amount"), fee: x.getFloat("fee"), total: x.getFloat("total"), note: x.getString("note") });
+}, $apis.requireAuth());
+
+// 2b) Webhook: Flutterwave calls this when a payment completes, even if the member closed the page before coming back.
+//     The body is never trusted: we check the signature, then settle() asks Flutterwave to verify the transaction.
 routerAdd("POST", "/api/jjhhf/flw-webhook", (e) => {
-  const F = require(`${__hooks}/flutterwave.js`), W = require(`${__hooks}/wallet.js`);
+  const F = require(`${__hooks}/flutterwave.js`), D = require(`${__hooks}/deposits.js`);
   const c = F.cfg();
   const sig = e.request.header.get("verif-hash") || "";
   if (!c.hash || !$security.equal(sig, c.hash)) return e.json(401, { message: "Invalid signature" });
-
-  const body = e.requestInfo().body || {};
-  const d = body.data || {};
-  if (body.event !== "charge.completed" || !d.id || typeof d.tx_ref !== "string" || !d.tx_ref.startsWith("JJHHF-VA-")) return e.json(200, { ok: true });
-
-  const v = F.verifyTransaction(d.id);                 // throws on a Flutterwave outage -> 500 -> Flutterwave retries the webhook later
-  if (!v || v.status !== "successful" || v.currency !== F.CURRENCY || v.tx_ref !== d.tx_ref) return e.json(200, { ok: true });
-
-  let user;
-  try { user = $app.findFirstRecordByData("users", "va_ref", v.tx_ref); } catch (_) { console.log("jjhhf wallet: transfer for unknown account", v.tx_ref, v.id); return e.json(200, { ok: true }); }
-
-  const amount = Number(v.amount);
-  if (!(amount > 0)) return e.json(200, { ok: true });
-  $app.runInTransaction((tx) => {
-    if (W.credit(tx, user.id, amount, "FLW-" + v.id, "Bank transfer" + (v.narration ? " · " + v.narration : ""))) W.collect(tx, user.id);   // plans waiting for money are served at once
-  });
+  const body = e.requestInfo().body || {}, d = body.data || {};
+  if (body.event !== "charge.completed" || !d.id || typeof d.tx_ref !== "string" || !d.tx_ref.startsWith("JJHHF-DEP-")) return e.json(200, { ok: true });
+  try { D.settle(d.tx_ref, String(d.id)); }
+  catch (err) { if (String(err).includes("Deposit not found")) return e.json(200, { ok: true }); throw err; }   // other errors -> Flutterwave retries later
   return e.json(200, { ok: true });
 });
 
-// 3) Admin fallback: credit a member's wallet by hand (for example a transfer whose webhook never arrived). Needs a unique reference.
+// 3) Admin fallback: credit a member's wallet by hand (for example money received outside Flutterwave). Needs a unique reference.
 routerAdd("POST", "/api/jjhhf/wallet/credit", (e) => {
   const W = require(`${__hooks}/wallet.js`);
   if (e.auth.getString("role") !== "admin") throw new ForbiddenError("Admins only.");
@@ -105,9 +93,30 @@ routerAdd("GET", "/api/jjhhf/admin/stats", (e) => {
   const po = one("SELECT COALESCE(SUM(CASE WHEN [[status]] = 'pending' THEN 1 ELSE 0 END), 0) AS pending FROM {{payouts}}", { pending: 0 });
   const pl = one("SELECT COUNT(*) AS n FROM {{plans}}", { n: 0 });
   const tu = one("SELECT COUNT(*) AS n, COALESCE(SUM([[amount]]), 0) AS total FROM {{wallet_txs}} WHERE [[kind]] = 'topup'", { n: 0, total: -0 });
+  const dp = one("SELECT COALESCE(SUM(CASE WHEN [[status]] = 'successful' THEN 1 ELSE 0 END), 0) AS ok, COALESCE(SUM(CASE WHEN [[status]] = 'successful' THEN [[amount]] ELSE 0 END), 0) AS total, COALESCE(SUM(CASE WHEN [[status]] = 'pending' THEN 1 ELSE 0 END), 0) AS pending FROM {{deposits}}", { ok: 0, total: -0, pending: 0 });
+  const tx = one("SELECT COALESCE(SUM([[amount]]), 0) AS tax FROM {{fees}} WHERE [[status]] = 'confirmed' AND [[type]] = 'tax'", { tax: -0 });
+  const cd = one("SELECT COALESCE(SUM(CASE WHEN [[code_used_at]] != '' THEN 1 ELSE 0 END), 0) AS used, COALESCE(SUM(CASE WHEN [[code]] != '' AND [[code_used_at]] = '' AND [[code_from]] <= {:now} AND [[code_until]] > {:now} THEN 1 ELSE 0 END), 0) AS open FROM {{subscriptions}}".replace(/\{:now\}/g, "'" + new Date().toISOString().replace("T", " ") + "'"), { used: 0, open: 0 });
   return e.json(200, {
     users: all.users, members: u.members, registered: u.registered, unregistered: u.members - u.registered, withAccount: u.withAccount, admins: all.users - u.members,
     held: all.held, subscriptions: s.n, activeSubscriptions: s.active, pendingPayments: p.pending, confirmedTotal: p.confirmed, penalties: p.penalties,
-    fees: f.fees, pendingPayouts: po.pending, plans: pl.n, topups: tu.n, topupTotal: tu.total,
+    fees: f.fees - tx.tax, tax: tx.tax, deposits: dp.ok, depositTotal: dp.total, pendingDeposits: dp.pending, codesUsed: cd.used, codesOpen: cd.open, pendingPayouts: po.pending, plans: pl.n, topups: tu.n, topupTotal: tu.total,
   });
+}, $apis.requireAuth());
+
+// 7) Safety net every 10 minutes: deposits still pending after 3 minutes (member closed the page and the webhook was missed) are checked
+//    with Flutterwave for up to 2 days.
+cronAdd("jjhhf_deposit_check", "*/10 * * * *", () => {
+  const D = require(`${__hooks}/deposits.js`), W = require(`${__hooks}/wallet.js`);
+  const now = Date.now();
+  $app.findRecordsByFilter("deposits", "status = 'pending' && created <= {:a} && created >= {:b}", "created", 200, 0,
+    { a: W.ts(new Date(now - 3 * 60e3)), b: W.ts(new Date(now - 2 * 864e5)) }).forEach(d => {
+    try { D.settle(d.getString("tx_ref"), ""); } catch (err) { console.log("jjhhf deposit check:", d.getString("tx_ref"), String(err)); }
+  });
+});
+
+// 8) Check a plan code before joining (shows the member whether it is valid, used, expired or not open yet).
+routerAdd("POST", "/api/jjhhf/code/check", (e) => {
+  const W = require(`${__hooks}/wallet.js`);
+  const c = W.codeState($app, (e.requestInfo().body || {}).code);
+  return e.json(200, { status: c.status, code: c.code, message: c.message, plan: c.plan || "", from: c.from ? c.from.toISOString() : "", until: c.until ? c.until.toISOString() : "" });
 }, $apis.requireAuth());

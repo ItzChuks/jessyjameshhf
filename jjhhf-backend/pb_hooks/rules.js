@@ -83,7 +83,17 @@ function planState(sub, pl, pays, now = new Date()) {
 
 // when a plan's saving period ends = the deadline of its last instalment (payouts open after this moment)
 const termEnd = (sub, pl) => { const S = sched(sub, pl); return S.due(S.n - 1); };
+// ---- plan codes: the code a member gets on joining can be used from the start of day "fromDay" to the end of day "untilDay"
+//      after joining (day 1 = the day they join, Lagos calendar). Returns null when the plan has no code days set.
+function codeWindow(joined, fromDay, untilDay) {
+  if (!(fromDay >= 1) || !(untilDay >= fromDay)) return null;
+  const L = toL(parseTs(joined)), y = L.getUTCFullYear(), m = L.getUTCMonth(), d = L.getUTCDate();
+  return { from: fromL(y, m, d + fromDay - 1), until: fromL(y, m, d + untilDay) };
+}
+// payouts need ANOTHER plan that is active, still running, and joined at least this long ago
+const PAYOUT_MIN_RUNNING_DAYS = 14;
+
 // plain object from a PocketBase plan record
 const planObj = r => ({ amount: r.getFloat("amount"), duration: r.getInt("duration"), frequency: r.getString("frequency"), category: r.getString("category"), name: r.getString("name") });
 
-module.exports = { RULES, parseTs, isSeasonal, sched, catchupCount, collectFrom, collectAt, stateFromPaid, planState, termEnd, planObj, instOf, seasonCount, seasonYear, seasonFirst, dueAt };
+module.exports = { codeWindow, PAYOUT_MIN_RUNNING_DAYS, RULES, parseTs, isSeasonal, sched, catchupCount, collectFrom, collectAt, stateFromPaid, planState, termEnd, planObj, instOf, seasonCount, seasonYear, seasonFirst, dueAt };

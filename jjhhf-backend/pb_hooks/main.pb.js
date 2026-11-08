@@ -22,6 +22,11 @@ onRecordUpdateRequest((e) => {
   for (const f of ["wallet_balance", "va_number", "va_bank", "va_ref"]) {
     if (f === "wallet_balance" ? e.record.getFloat(f) !== o.getFloat(f) : e.record.getString(f) !== o.getString(f)) throw new BadRequestError("That field cannot be changed.");
   }
+  // payout details from the Profile page: tidy them and check the account number
+  const acct = e.record.getString("bank_account_number").replace(/\D/g, "");
+  if (e.record.getString("bank_account_number") && acct.length !== 10) throw new BadRequestError("Enter your 10-digit account number.");
+  e.record.set("bank_account_number", acct);
+  for (const f of ["bank_name", "bank_account_name", "address"]) e.record.set(f, e.record.getString(f).trim().slice(0, 300));
   e.next();
 }, "users");
 

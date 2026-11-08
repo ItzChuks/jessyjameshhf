@@ -2,7 +2,7 @@
 function createMockPB() {
   const mem = {};
   const ls = { get: k => { try { return localStorage.getItem(k); } catch (e) { return mem[k] ?? null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch (e) { mem[k] = v; } }, del: k => { try { localStorage.removeItem(k); } catch (e) { delete mem[k]; } } };
-  const KEY = 'jjhhf_db_v1', REL = { user: 'users', plan: 'plans', subscription: 'subscriptions' };
+  const KEY = 'jjhhf_db_v2', REL = { user: 'users', plan: 'plans', subscription: 'subscriptions' };
   let db = JSON.parse(ls.get(KEY) || 'null');
   const save = () => ls.set(KEY, JSON.stringify(db));
   // real-time emulation: listeners per collection; other open tabs are told through a BroadcastChannel
@@ -10,27 +10,26 @@ function createMockPB() {
   const fire = (c, action, record) => (L[c] || []).forEach(cb => setTimeout(() => cb({ action, record }), 0));
   const emit = (c, action, record) => { fire(c, action, record); if (bc) bc.postMessage({ c, action, record }); };
   if (bc) bc.onmessage = e => { db = JSON.parse(ls.get(KEY) || 'null') || db; fire(e.data.c, e.data.action, e.data.record); };
+  const mToL = d => new Date(d.getTime() + 36e5), mFromL = (y, m, d, h = 0) => new Date(Date.UTC(y, m, d, h) - 36e5), mTs = x => new Date(String(x).replace(' ', 'T') + (/Z$/.test(String(x)) ? '' : 'Z'));   // Lagos date helpers (app.js loads later)
   const uid = () => Math.random().toString(36).slice(2, 12).padEnd(10, '0');
   const now = (age = 0) => new Date(Date.now() - age * 864e5).toISOString().replace('T', ' ').slice(0, 19);
   const add = (c, o, age = 0) => { const r = { id: uid(), created: now(age), ...o }; db[c].push(r); return r; };
   if (!db) {
-    db = { users: [], plans: [], subscriptions: [], payments: [], payouts: [], fees: [], wallet_txs: [] };
+    db = { users: [], plans: [], subscriptions: [], payments: [], payouts: [], fees: [], wallet_txs: [], deposits: [] };
     add('users', { email: 'admin@jjhhf.test', password: 'admin12345', name: 'JJHHF Admin', country: 'Nigeria', phone: '08026701578', role: 'admin', shirt_paid: true }, 60);
     const u = add('users', { email: 'user@jjhhf.test', password: 'user12345', name: 'Ada Okafor', country: 'Nigeria', phone: '08012345678', role: 'user', shirt_paid: true }, 40);
     add('users', { email: 'chidi@example.com', password: 'pass12345', name: 'Chidi Eze', country: 'Ghana', phone: '0244000111', role: 'user', shirt_paid: false }, 15);
-    const n = a => '₦' + a.toLocaleString();
-    [['Grocery Plan 1', 250, ' 50kg Rice, 5L Groundnut Oil, 1 Carton of Indomitable'], ['Grocery Plan 2', 500, '2 Bags of 50kg Rice, 10kg Semo, 5L Groundnut Oil, 1 Carton of Indomitable, 2 Packets of Knorr Cubes'], ['Grocery Plan 3', 800, '3 Bags of 50kg Rice, 5L Groundnut Oil, 3 Cartons of Indomitable, 2 Cartons of Spaghetti, 2 Packets of Knorr Cubes'], ['Grocery Plan 4', 1000, '4 Bags of 50kg Rice, 10kg Groundnut Oil, 10kg Semo, 4 Cartons of Indomitable, 1 Carton of Spaghetti']]
-      .forEach(([name, a, d]) => add('plans', { name, category: 'grocery', frequency: 'daily', amount: a, duration: 365, payout: a * 365, description: d.trim(), active: true }, 50));
-    [['daily', 365, [100, 200, 300, 400, 500, 1000, 1500, 2000, 2500, 3000]], ['weekly', 53, [500, 1000, 1500, 2000, 2500, 3000]], ['monthly', 12, [2000, 2500, 3000, 5000, 10000, 15000, 20000]]]
-      .forEach(([f, d, l]) => l.forEach(a => add('plans', { name: f[0].toUpperCase() + f.slice(1) + ' Savings ' + n(a), category: 'cash', frequency: f, amount: a, duration: d, payout: a * d, description: '', active: true }, 50)));
-    const pl = nm => db.plans.find(p => p.name === nm).id;
-    const s1 = add('subscriptions', { user: u.id, plan: pl('Daily Savings ₦500'), status: 'active' }, 11);
-    const s2 = add('subscriptions', { user: u.id, plan: pl('Grocery Plan 2'), status: 'active' }, 3);
-    // s1: 12 instalments covered; payment #10 was made after the deadline, so it carries a ₦500 penalty
-    for (let i = 0; i < 12; i++) { const late = i === 10; add('payments', { user: u.id, subscription: s1.id, amount: late ? 1000 : 500, penalty: late ? 500 : 0, installments: 1, late_count: late ? 1 : 0, note: 'TRF' + (1000 + i), status: i < 10 ? 'confirmed' : 'pending' }, 11 - i); }
-    for (let i = 0; i < 4; i++) add('payments', { user: u.id, subscription: s2.id, amount: 500, penalty: 0, installments: 1, late_count: 0, note: 'TRF' + (2000 + i), status: 'confirmed' }, 3 - i);
+    // grocery plans of 4, 8, 12 and 25 weeks (code usable from day 4 to day 7 after joining)
+    [[4, 2000], [8, 2000], [12, 1500], [25, 1000]].forEach(([w, a]) => add('plans', { name: 'Grocery ' + w + ' weeks', category: 'grocery', frequency: 'weekly', amount: a, weeks: w, duration: w, payout: a * w, description: 'Rice, oil, semo and noodles', code_from_day: 4, code_until_day: 7, active: true }, 50));
+    add('plans', { name: 'Daily grocery 4 weeks', category: 'grocery', frequency: 'daily', amount: 300, weeks: 4, duration: 28, payout: 8400, description: '', code_from_day: 3, code_until_day: 6, active: true }, 50);
+    const pl = nm => db.plans.find(p => p.name === nm);
+    const mk = (p, age) => { const s = add('subscriptions', { user: u.id, plan: p.id, status: 'active' }, age); const L = mToL(mTs(s.created)), y = L.getUTCFullYear(), m = L.getUTCMonth(), d = L.getUTCDate(); s.code = 'JJ-DEMO-' + String(age).padStart(4, '0').slice(-4); s.code_from = mFromL(y, m, d + p.code_from_day - 1).toISOString().replace('T', ' '); s.code_until = mFromL(y, m, d + p.code_until_day).toISOString().replace('T', ' '); return s; };
+    const s1 = mk(pl('Grocery 8 weeks'), 20), s2 = mk(pl('Daily grocery 4 weeks'), 4);
+    for (let i = 0; i < 3; i++) add('payments', { user: u.id, subscription: s1.id, amount: 2000, penalty: 0, installments: 1, late_count: 0, note: 'Wallet', status: 'confirmed' }, 20 - i * 7);
+    for (let i = 0; i < 4; i++) add('payments', { user: u.id, subscription: s2.id, amount: 300, penalty: 0, installments: 1, late_count: 0, note: 'Wallet', status: 'confirmed' }, 4 - i);
     save();
   }
+  if (!db.deposits) { db.deposits = []; save(); }
   if (!db.fees) { db.fees = []; db.users.forEach(u => { if (u.shirt_paid === undefined) u.shirt_paid = true; }); save(); }   // demo data saved before fees existed
   if (!db.wallet_txs) { db.wallet_txs = []; db.users.forEach(u => { if (u.wallet_balance === undefined) u.wallet_balance = u.email === 'user@jjhhf.test' ? 20000 : 0; }); save(); }   // demo data saved before wallets existed
   const test = (r, f) => !f || f.split('&&').every(c => { const m = c.trim().match(/^(\w+)\s*=\s*(?:"([^"]*)"|(true|false))$/); if (!m) return true; return r[m[1]] === (m[2] !== undefined ? m[2] : m[3] === 'true'); });
@@ -84,37 +83,58 @@ function createMockPB() {
     }
     save();
   };
+  // ---- plan codes (demo copy of pb_hooks/wallet.js codeState) ----
+  const norm = c => String(c || '').toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/^(JJ)?([A-Z0-9]{4})([A-Z0-9]{4})$/, 'JJ-$2-$3');
+  const codeState = c => {
+    c = norm(c); const r = db.subscriptions.find(x => x.code === c), t = Date.now();
+    if (!r) return { status: 'invalid', code: c, message: 'That code does not exist. Check it and try again.' };
+    const pl = db.plans.find(p => p.id === r.plan) || {}, last = new Date(parseTs(r.code_until).getTime() - 1).toLocaleDateString('en-GB', { timeZone: 'Africa/Lagos', day: 'numeric', month: 'short', year: 'numeric' });
+    if (r.code_used_at) return { status: 'used', code: c, plan: pl.name, rec: r, message: 'This code has already been used.' };
+    if (t >= parseTs(r.code_until).getTime()) return { status: 'expired', code: c, plan: pl.name, rec: r, message: 'This code expired at the end of ' + last + '.' };
+    if (t < parseTs(r.code_from).getTime()) return { status: 'not_yet', code: c, plan: pl.name, rec: r, message: 'This code can only be used from ' + new Date(parseTs(r.code_from)).toLocaleString('en-GB', { timeZone: 'Africa/Lagos' }) + '.' };
+    return { status: 'valid', code: c, plan: pl.name, rec: r, message: 'Code accepted. It can be used until the end of ' + last + '.' };
+  };
+  const giveCode = (s, pl) => {
+    if (!(pl.code_from_day >= 1) || !(pl.code_until_day >= pl.code_from_day)) return;
+    const L = mToL(mTs(s.created)), y = L.getUTCFullYear(), m = L.getUTCMonth(), d = L.getUTCDate(), A = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789', r4 = () => Array.from({ length: 4 }, () => A[Math.floor(Math.random() * A.length)]).join('');
+    s.code = 'JJ-' + r4() + '-' + r4(); s.code_from = mFromL(y, m, d + pl.code_from_day - 1).toISOString().replace('T', ' '); s.code_until = mFromL(y, m, d + pl.code_until_day).toISOString().replace('T', ' ');
+  };
   const send = async (path, o = {}) => {
     const b = o.body || {};
     const me = db.users.find(u => u.id === aid), NEED = 'Please pay the one-time ₦5,000 t-shirt fee before you request a payout.', n = x => '₦' + Number(x).toLocaleString();
     if (path.endsWith('/admin/stats')) {                 // same totals the real server works out with SQL
       const U = db.users, M = U.filter(u => u.role !== 'admin'), P = db.payments, sum = (l, f) => l.reduce((x, r) => x + (+r[f] || 0), 0), conf = P.filter(p => p.status === 'confirmed'), tops = (db.wallet_txs || []).filter(t => t.kind === 'topup');
       const reg = M.filter(u => u.shirt_paid).length;
-      return { users: U.length, members: M.length, registered: reg, unregistered: M.length - reg, withAccount: M.filter(u => u.va_number).length, admins: U.length - M.length, held: sum(U, 'wallet_balance'), subscriptions: db.subscriptions.length, activeSubscriptions: db.subscriptions.filter(x => x.status === 'active').length, pendingPayments: P.filter(p => p.status === 'pending').length, confirmedTotal: sum(conf, 'amount'), penalties: sum(conf, 'penalty'), fees: sum((db.fees || []).filter(f => f.status === 'confirmed'), 'amount'), pendingPayouts: db.payouts.filter(p => p.status === 'pending').length, plans: db.plans.length, topups: tops.length, topupTotal: sum(tops, 'amount') };
+      return { users: U.length, members: M.length, registered: reg, unregistered: M.length - reg, withAccount: 0, tax: sum((db.fees || []).filter(f => f.type === 'tax' && f.status === 'confirmed'), 'amount'), deposits: (db.deposits || []).filter(d => d.status === 'successful').length, depositTotal: sum((db.deposits || []).filter(d => d.status === 'successful'), 'amount'), pendingDeposits: 0, codesUsed: db.subscriptions.filter(x => x.code_used_at).length, codesOpen: db.subscriptions.filter(x => x.code && !x.code_used_at && Date.now() >= parseTs(x.code_from).getTime() && Date.now() < parseTs(x.code_until).getTime()).length, admins: U.length - M.length, held: sum(U, 'wallet_balance'), subscriptions: db.subscriptions.length, activeSubscriptions: db.subscriptions.filter(x => x.status === 'active').length, pendingPayments: P.filter(p => p.status === 'pending').length, confirmedTotal: sum(conf, 'amount'), penalties: sum(conf, 'penalty'), fees: sum((db.fees || []).filter(f => f.status === 'confirmed'), 'amount'), pendingPayouts: db.payouts.filter(p => p.status === 'pending').length, plans: db.plans.length, topups: tops.length, topupTotal: sum(tops, 'amount') };
     }
-    if (path.endsWith('/wallet/account')) {
-      if (!/^\d{11}$/.test(String(b.id_number || ''))) throw new Error('Enter your 11-digit ' + String(b.id_type || 'bvn').toUpperCase() + '.');
-      if (!me.va_number) { me.va_number = '9' + Math.floor(Math.random() * 1e9).toString().padStart(9, '0'); me.va_bank = 'Demo Bank'; me.va_ref = 'JJHHF-VA-' + me.id; save(); }
-      return { number: me.va_number, bank: me.va_bank };
+    if (path.endsWith('/wallet/deposit')) {               // demo: the deposit succeeds at once (the real site sends you to Flutterwave)
+      const a = Math.round(+b.amount || 0); if (a < 100) throw new Error('The smallest deposit is ₦100.');
+      db.deposits = db.deposits || []; const d = { id: uid(), created: now(), user: aid, amount: a, fee: 100, total: a + 100, tx_ref: 'JJHHF-DEP-DEMO-' + uid(), status: 'successful', flw_id: 'DEMO' };
+      db.deposits.push(d); emit('deposits', 'create', d);
+      post(aid, a, 'topup', 'Flutterwave deposit (demo)', { ref: d.tx_ref });
+      const f = { id: uid(), created: now(), user: aid, type: 'tax', amount: 100, status: 'confirmed', note: 'Tax charge on deposit' }; db.fees.push(f); emit('fees', 'create', f);
+      collect(aid); save(); return { demo: true, amount: a, fee: 100, total: a + 100 };
     }
-    if (path.endsWith('/wallet/demo-topup')) {            // demo only: pretend a bank transfer arrived
-      post(aid, +b.amount, 'topup', 'Bank transfer (demo)', { ref: 'DEMO-' + uid() }); collect(aid); save(); return { ok: true };
-    }
+    if (path.endsWith('/wallet/verify')) { const d = (db.deposits || []).find(x => x.tx_ref === b.tx_ref); return d ? { status: d.status, amount: d.amount, fee: d.fee, total: d.total } : { status: 'pending' }; }
+    if (path.endsWith('/code/check')) return codeState(b.code);
     if (path.endsWith('/wallet/credit')) {
       if (me.role !== 'admin') throw new Error('Admins only.');
       post(b.user, +b.amount, 'topup', 'Credited by admin · ' + b.ref, { ref: 'MANUAL-' + b.ref }); collect(b.user); save(); return { ok: true };
     }
     if (path.endsWith('/fee/pay')) {
-      const t = b.type, amt = { shirt: 5000, join: 3000, clearance: 3000 }[t];
+      const t = b.type, amt = { shirt: 5000, join: 3000, clearance: 3000 }[t]; db.deposits = db.deposits || [];
       if (!amt) throw new Error('Unknown fee.');
       const short = need => { const bal = me.wallet_balance || 0; if (bal < need) throw new Error('Your wallet needs ' + n(need) + ' for this. You have ' + n(bal) + '. Please top up ' + n(need - bal) + '.'); };
       let out = {};
       if (t === 'shirt') { if (me.shirt_paid) throw new Error('You have already paid the t-shirt fee.'); short(amt); post(aid, -amt, 'shirt', 'T-shirt registration fee'); me.shirt_paid = true; me.shirt_paid_at = now(); emit('users', 'update', me); }
       else if (t === 'join') {
         const pl = db.plans.find(p => p.id === b.plan); if (!pl || pl.active === false) throw new Error('That plan is not open for enrolment.');
+        const cs = String(b.code || '').trim() ? codeState(b.code) : null; if (cs && cs.status !== 'valid') throw new Error(cs.message);
         const s = { id: uid(), created: now(), user: aid, plan: pl.id, status: 'active' }, c = catchupCount(s, pl), total = amt + c * pl.amount;
         short(total);
+        if (cs) s.joined_code = cs.code; giveCode(s, pl);
         db.subscriptions.push(s); emit('subscriptions', 'create', s);
+        if (cs) { Object.assign(cs.rec, { code_used_by: aid, code_used_name: me.name || me.email, code_used_at: now(), code_used_sub: s.id }); emit('subscriptions', 'update', cs.rec); }
         post(aid, -amt, 'join', 'Joining fee · ' + pl.name, { plan: pl.id, subscription: s.id });
         if (c) { const p = { id: uid(), created: now(), user: aid, subscription: s.id, amount: c * pl.amount, penalty: 0, installments: c, late_count: 0, note: 'Catch-up · ' + c + ' instalments', status: 'confirmed' }; db.payments.push(p); emit('payments', 'create', p); post(aid, -c * pl.amount, 'catchup', 'Catch-up · ' + pl.name, { plan: pl.id, subscription: s.id }); }
         out = { subscription: s.id, catchup: c * pl.amount, instalments: c }; collect(aid);
@@ -122,7 +142,8 @@ function createMockPB() {
         const planOf = s => db.plans.find(p => p.id === s.plan) || {};
         if (!runningOthers(db.subscriptions.filter(s => s.user === aid), b.subscription, planOf).length) throw new Error(PAYOUT_NEEDS_PLAN);
         if (!me.shirt_paid) throw new Error(NEED);
-        if (!String(b.details || '').trim()) throw new Error('Enter your delivery or bank details.');
+        if (!payoutReady(me)) throw new Error('Add your payout details (account name, bank, 10-digit account number and address) on your Profile page before requesting a payout.');
+        b.details = [me.bank_account_name, me.bank_name, me.bank_account_number, me.address].join(' · ');
         short(amt); post(aid, -amt, 'clearance', 'Payout clearance fee', { subscription: b.subscription });
         const p = { id: uid(), created: now(), user: aid, subscription: b.subscription, note: b.details, status: 'pending' }; db.payouts.push(p); emit('payouts', 'create', p);
       }

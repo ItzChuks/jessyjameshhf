@@ -9,10 +9,11 @@ PocketBase for Jessy James Helping Hands Foundation. Tested with PocketBase **v0
 3. **Add a Volume** to the service, mount path `/pb/pb_data` (otherwise the database is wiped on every redeploy).
 4. Settings > Networking > **Generate Domain**. Copy the URL (e.g. `https://jjhhf-backend-production.up.railway.app`).
 5. Open `https://<your-domain>/_/` and create the superuser (Railway logs show a one-time setup link on first start).
-6. Variables (for wallets / virtual accounts):
+6. Variables (for wallet deposits through Flutterwave Checkout):
    - `FLW_SECRET_KEY`: Flutterwave > Settings > API keys (use the test key first)
    - `FLW_WEBHOOK_HASH`: any long random string; put the same value in Flutterwave > Settings > Webhooks as the **Secret hash**
    - Flutterwave webhook URL: `https://<your-domain>/api/jjhhf/flw-webhook`, with "Receive webhook for successful charges" on.
+     (Members are credited when they return from the payment page; the webhook covers anyone who closes the page early.)
 7. Settings > Application (in the PocketBase panel): set the app name and URL; optionally restrict allowed origins to your website domain.
 
 Migrations run automatically on start and create every collection and rule.
@@ -25,15 +26,18 @@ Sign up on the website, then in the PocketBase panel open **users**, edit yourse
 
 - `pb_migrations/`: users fields, plans, subscriptions, payments, payouts, fees, wallet ledger (`wallet_txs`); `1760000005_public_plans.js` lets the public homepage list open plans.
 - `pb_hooks/main.pb.js`: sign-up rules (terms required, always `role = user`), wallet fields locked, plan joining and payout guards.
-- `pb_hooks/wallet.js`, `wallet.pb.js`: wallet ledger, top-ups, automatic collection, joining a plan. Routes:
-  - `POST /api/jjhhf/wallet/account` member's fixed account number (BVN/NIN sent to Flutterwave, never stored)
-  - `POST /api/jjhhf/flw-webhook` transfer received (signature + Flutterwave verification, credited once)
-  - `POST /api/jjhhf/wallet/credit` admin manual credit (unique bank reference)
-  - `POST /api/jjhhf/fee/pay` joining fee + catch-up, t-shirt fee, payout clearance fee
-  - cron `jjhhf_wallet_collect` every 5 minutes
-- `pb_hooks/rules.js`: deadlines, penalties, seasons. `pb_hooks/fees.js`: fee and payout rules.
+- `pb_hooks/deposits.js`: deposits through Flutterwave Checkout. The member pays amount + **₦100 tax charge**; the wallet gets the amount, the ₦100 is recorded as a `tax` fee. Each deposit is credited exactly once.
+- `pb_hooks/wallet.js`, `wallet.pb.js`: wallet ledger, automatic collection, joining a plan, plan codes. Routes:
+  - `POST /api/jjhhf/wallet/deposit` start a deposit, returns the Flutterwave Checkout link
+  - `POST /api/jjhhf/wallet/verify` settle a deposit when the member returns (the server asks Flutterwave itself)
+  - `POST /api/jjhhf/flw-webhook` payment completed (signature checked, then verified with Flutterwave)
+  - `POST /api/jjhhf/wallet/credit` admin manual credit (unique reference)
+  - `POST /api/jjhhf/fee/pay` joining fee (with optional plan code), t-shirt fee, payout clearance fee
+  - `POST /api/jjhhf/code/check` is this plan code valid / used / expired / not open yet
+  - `GET /api/jjhhf/admin/stats` admin totals
+  - cron `jjhhf_wallet_collect` every minute, cron `jjhhf_deposit_check` every 10 minutes (re-checks pending deposits)
+- `pb_hooks/rules.js`: deadlines, penalties, plan-code windows, payout rule. `pb_hooks/fees.js`: fee and payout checks.
 
-**Keep in sync with the website's `app.js`:** `RULES`/season (`rules.js`) and `FEES` (`wallet.js`). The server values are the ones charged.
 
 ## Built for scale
 
@@ -50,7 +54,11 @@ Sign up on the website, then in the PocketBase panel open **users**, edit yourse
 
 ## Rules summary
 
-- Deadlines in Lagos time: daily before 12:00 noon, weekly Friday 12:00 noon, monthly the 2nd of the next month. Late = double; the penalty never counts as savings.
-- Cash and Foodie plans run 1 January to 30 November; joining mid-season collects the contributions already due (no penalty). Grocery plans run from the day of joining.
-- Fees: joining ₦3,000 per plan, t-shirt ₦5,000 once (only needed for payouts), clearance ₦3,000 per payout request. All from the wallet.
-- Payout: plan fully paid, saving period ended, another plan actively running, t-shirt fee paid.
+- **Plans:** Grocery only, 4, 8, 12 or 25 weeks (admin can type any length), daily or weekly contributions, running from the day of joining. (Migration `1760000007` hides any old Cash/Foodie plans; existing memberships keep working.)
+- **Plan codes:** every membership gets a code (`JJ-XXXX-XXXX`). It is usable from day `code_from_day` to the end of day `code_until_day` after joining (set per plan; day 1 = joining day). Any member can enter it, once, when joining a plan; it is then marked used (who and when). Unused codes become expired.
+- **Deposits:** through Flutterwave Checkout, no BVN/NIN. ₦100 tax charge per deposit, added at checkout.
+- **Deadlines** (Lagos time): daily before 12:00 noon, weekly Friday 12:00 noon. Late = double; the penalty never counts as savings.
+- **Fees** from the wallet: joining ₦3,000 per plan, t-shirt ₦5,000 once (only needed for payouts), clearance ₦3,000 per payout request.
+- **Payout:** plan fully paid, its length ended, **another plan active and running for at least 2 weeks**, t-shirt fee paid, and **payout details saved on the Profile** (account name, bank, 10-digit account number, address; migration `1760000008`). The request stores a copy of those details; the admin sees them on Payouts and on the member page.
+
+**Keep in sync with the website's `app.js`:** `RULES` (`rules.js`), `FEES` (`wallet.js`), the tax charge (`deposits.js` `TAX`) and the 2-week payout rule (`rules.js` `PAYOUT_MIN_RUNNING_DAYS`).

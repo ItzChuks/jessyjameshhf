@@ -8,18 +8,19 @@
 const W = require(`${__hooks}/wallet.js`), FEES = W.FEES;
 const R = require(`${__hooks}/rules.js`);
 const SHIRT_MSG = "Please pay the one-time ₦5,000 t-shirt fee before you request a payout.";
-const NEED_PLAN_MSG = "To request a payout you must have another plan actively running. Join a new plan first, then request this payout.";
+const PROFILE_MSG = "Add your payout details (account name, bank, 10-digit account number and address) on your Profile page before requesting a payout.";
+const NEED_PLAN_MSG = "To request a payout you must have another plan that has been actively running for at least 2 weeks. Join a new plan and request this payout once it has run for 2 weeks.";
 
 const isRegistered = (app, uid) => app.findRecordById("users", uid).getBool("shirt_paid");
 
 // True when the member has another plan (not the one being paid out) that is still running:
-// status active and its saving period has not ended yet.
+// status active, its saving period has not ended yet, and it was joined at least 2 weeks ago (R.PAYOUT_MIN_RUNNING_DAYS).
 function runningElsewhere(app, uid, sid) {
-  const now = new Date();
+  const now = new Date(), minAge = R.PAYOUT_MIN_RUNNING_DAYS * 864e5;
   return app.findRecordsByFilter("subscriptions", "user = {:u} && status = 'active' && id != {:s}", "", 0, 0, { u: uid, s: sid }).some(s => {
     try {
       const plan = app.findRecordById("plans", s.getString("plan"));
-      return now < R.termEnd({ created: s.getString("created") }, R.planObj(plan));
+      return now < R.termEnd({ created: s.getString("created") }, R.planObj(plan)) && now - R.parseTs(s.getString("created")) >= minAge;
     } catch (_) { return false; }
   });
 }
@@ -60,7 +61,7 @@ function pay(app, uid, type, body) {
   };
   const short = amt => { const bal = W.balanceOf(app, uid); if (bal < amt) throw new BadRequestError("Your wallet needs " + W.naira(amt) + " for this. You have " + W.naira(bal) + ". Please top up " + W.naira(amt - bal) + "."); };
 
-  if (type === "join") return W.joinPlan(app, uid, body.plan);
+  if (type === "join") return W.joinPlan(app, uid, body.plan, body.code);
 
   if (type === "shirt") {
     const u = app.findRecordById("users", uid);
@@ -73,10 +74,13 @@ function pay(app, uid, type, body) {
     return {};
   }
 
-  const sid = String(body.subscription || ""), details = String(body.details || "").trim();
+  // payout details come from the member's profile (Profile page), never from the request
+  const sid = String(body.subscription || ""), u = app.findRecordById("users", uid);
+  const P = { name: u.getString("bank_account_name"), bank: u.getString("bank_name"), acct: u.getString("bank_account_number"), addr: u.getString("address") };
   const why = payoutProblem(app, uid, sid);
   if (why) throw new BadRequestError(why);
-  if (!details) throw new BadRequestError("Enter your delivery or bank details.");
+  if (!P.name || !P.bank || !/^\d{10}$/.test(P.acct) || !P.addr) throw new BadRequestError(PROFILE_MSG);
+  const details = P.name + " · " + P.bank + " · " + P.acct + " · " + P.addr;   // a copy kept on the request, in case the profile changes later
   short(FEES.clearance);
   W.post(app, uid, -FEES.clearance, "clearance", "Payout clearance fee", { subscription: sid });
   const po = new Record(app.findCollectionByNameOrId("payouts"));
@@ -85,4 +89,4 @@ function pay(app, uid, type, body) {
   return {};
 }
 
-module.exports = { FEES, SHIRT_MSG, NEED_PLAN_MSG, payoutProblem, runningElsewhere, pay };
+module.exports = { FEES, SHIRT_MSG, PROFILE_MSG, NEED_PLAN_MSG, payoutProblem, runningElsewhere, pay };
