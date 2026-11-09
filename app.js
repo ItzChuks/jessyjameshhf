@@ -291,7 +291,7 @@ let _tinfo = null, _tinfoAt = 0;
 const transferInfo = async () => { if (!_tinfo || Date.now() - _tinfoAt > 60000) { _tinfo = await pb.send('/api/jjhhf/transfer/info', { method: 'GET' }); _tinfoAt = Date.now(); } return _tinfo; };
 // large photos are made smaller before upload (max 1800 px, JPEG), so they upload fast on mobile data; PDFs are sent as they are
 async function shrinkImage(file) {
-  if (!file || !/^image\/(jpeg|png|webp)$/.test(file.type) || file.size < 1.2e6) return file;
+  if (!file || !/^image\/(jpeg|png|webp|gif)$/.test(file.type) || (file.size < 1.2e6 && /^image\/(jpeg|png)$/.test(file.type))) return file;   // small JPG/PNG as they are; WebP/GIF always become JPEG
   try {
     const img = await createImageBitmap(file), k = Math.min(1, 1800 / Math.max(img.width, img.height));
     const c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);

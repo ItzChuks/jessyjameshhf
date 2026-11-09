@@ -2,7 +2,7 @@
 //
 // 1. The member types how much they want in the wallet. They transfer that amount + the ₦100 charge to the foundation's account
 //    (Admin > Receipts > Settings) and upload the receipt (photo, screenshot or PDF).
-// 2. The receipt is read automatically by an AI model (Anthropic Claude, ANTHROPIC_API_KEY on Railway). The server checks:
+// 2. The receipt is read automatically by an AI model (Gemini, Grok, OpenAI or Claude: see "which AI reads the receipts" below). The server checks:
 //      * it really is a successful transfer receipt that does not look edited
 //      * the amount is EXACTLY what the member had to pay (amount + charge)
 //      * it was paid INTO the foundation's account number (masked numbers like 01****6789 must match on every digit shown)
@@ -15,7 +15,7 @@
 //    wallet; the balance may go below zero if it was already spent, and plans then wait until it is topped up again).
 //
 // A receipt is only a picture: it can never prove money arrived. Automatic approval is a convenience; the admin check against the
-// bank statement is what makes it safe. Without ANTHROPIC_API_KEY every receipt simply waits for an admin.
+// bank statement is what makes it safe. Without an AI key every receipt simply waits for an admin.
 const W = require(`${__hooks}/wallet.js`);
 const TAX = 100, MIN = 100, MAX = 5000000, PER_DAY = 15;
 const env = k => $os.getenv(k) || "";
@@ -61,23 +61,62 @@ Read it carefully and reply with ONLY a JSON object, no other text:
  "looks_edited": true/false (true if text looks pasted over, misaligned, inconsistent fonts, or anything suggests the image was altered), "notes": "anything unusual, short"}
 Use "" or null for anything you cannot see. Never guess numbers.`;
 
-// Reads the receipt with the AI model. Returns { ok: true, data } or { ok: false, error }.
-function readReceipt(app, rec) {
-  const key = env("ANTHROPIC_API_KEY");
-  if (!key) return { ok: false, error: "Automatic receipt reading is not set up." };
-  let file; try { file = receiptData(app, rec); } catch (err) { return { ok: false, error: "Could not open the receipt file." }; }
-  const block = file.media === "application/pdf"
-    ? { type: "document", source: { type: "base64", media_type: "application/pdf", data: file.data } }
-    : { type: "image", source: { type: "base64", media_type: file.media, data: file.data } };
-  let r;
-  try {
-    r = $http.send({ url: env("RECEIPT_AI_URL") || "https://api.anthropic.com/v1/messages", method: "POST", timeout: 90,
+// ---- which AI reads the receipts ----
+// Set ONE key in Railway > Variables (the first one found is used, or choose with RECEIPT_AI):
+//   GEMINI_API_KEY     Google Gemini (aistudio.google.com; has a free tier)        RECEIPT_AI=gemini
+//   XAI_API_KEY        Grok (console.x.ai)                                          RECEIPT_AI=xai
+//   OPENAI_API_KEY     OpenAI (platform.openai.com)                                 RECEIPT_AI=openai
+//   ANTHROPIC_API_KEY  Anthropic Claude (console.anthropic.com)                     RECEIPT_AI=anthropic
+// Optional: RECEIPT_AI_MODEL to use another model of that provider.
+const PROVIDERS = {
+  gemini: { name: "Google Gemini", key: "GEMINI_API_KEY", model: "gemini-3.8-flash", pdf: true },
+  xai: { name: "Grok (xAI)", key: "XAI_API_KEY", model: "grok-4", pdf: false },
+  openai: { name: "OpenAI", key: "OPENAI_API_KEY", model: "gpt-5-mini", pdf: false },
+  anthropic: { name: "Anthropic Claude", key: "ANTHROPIC_API_KEY", model: "claude-haiku-5-5", pdf: true },
+};
+function provider() {
+  const want = env("RECEIPT_AI").toLowerCase();
+  if (PROVIDERS[want] && env(PROVIDERS[want].key)) return want;
+  return ["gemini", "xai", "openai", "anthropic"].find(p => env(PROVIDERS[p].key)) || "";
+}
+const providerName = () => { const p = provider(); return p ? PROVIDERS[p].name : ""; };
+
+// one request to the chosen provider; returns the model's text answer
+function askAI(p, file) {
+  const P = PROVIDERS[p], key = env(P.key), model = env("RECEIPT_AI_MODEL") || P.model, data = "data:" + file.media + ";base64," + file.data;
+  let req, pick;
+  if (p === "gemini") {
+    req = { url: env("RECEIPT_AI_URL") || "https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(model) + ":generateContent",
+      headers: { "content-type": "application/json", "x-goog-api-key": key },
+      body: { contents: [{ parts: [{ inline_data: { mime_type: file.media, data: file.data } }, { text: PROMPT }] }], generationConfig: { temperature: 0, responseMimeType: "application/json" } } };
+    pick = j => (((j.candidates || [])[0] || {}).content || { parts: [] }).parts.map(x => x.text || "").join("");
+  } else if (p === "xai" || p === "openai") {
+    req = { url: env("RECEIPT_AI_URL") || (p === "xai" ? "https://api.x.ai/v1/chat/completions" : "https://api.openai.com/v1/chat/completions"),
+      headers: { "content-type": "application/json", "authorization": "Bearer " + key },
+      body: { model, messages: [{ role: "user", content: [{ type: "image_url", image_url: { url: data, detail: "high" } }, { type: "text", text: PROMPT }] }] } };
+    pick = j => ((((j.choices || [])[0] || {}).message || {}).content) || "";
+  } else {
+    const block = file.media === "application/pdf" ? { type: "document", source: { type: "base64", media_type: "application/pdf", data: file.data } } : { type: "image", source: { type: "base64", media_type: file.media, data: file.data } };
+    req = { url: env("RECEIPT_AI_URL") || "https://api.anthropic.com/v1/messages",
       headers: { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({ model: env("RECEIPT_AI_MODEL") || "claude-haiku-5-5", max_tokens: 700, messages: [{ role: "user", content: [block, { type: "text", text: PROMPT }] }] }) });
-  } catch (err) { return { ok: false, error: "The receipt reader could not be reached." }; }
-  if (r.statusCode !== 200) { console.log("jjhhf receipt AI:", r.statusCode, toString(r.body).slice(0, 300)); return { ok: false, error: "The receipt reader is unavailable right now (" + r.statusCode + ")." }; }
-  const text = ((r.json && r.json.content) || []).map(c => c.text || "").join("");
-  const m = text.match(/\{[\s\S]*\}/);
+      body: { model, max_tokens: 700, messages: [{ role: "user", content: [block, { type: "text", text: PROMPT }] }] } };
+    pick = j => ((j.content || []).map(c => c.text || "").join(""));
+  }
+  const r = $http.send({ url: req.url, method: "POST", timeout: 90, headers: req.headers, body: JSON.stringify(req.body) });
+  if (r.statusCode !== 200) { console.log("jjhhf receipt AI (" + p + "):", r.statusCode, toString(r.body).slice(0, 300)); throw new Error(P.name + " is unavailable right now (" + r.statusCode + ")."); }
+  return pick(r.json || {});
+}
+
+// Reads the receipt with the chosen AI. Returns { ok: true, data } or { ok: false, error }.
+function readReceipt(app, rec) {
+  const p = provider();
+  if (!p) return { ok: false, error: "Automatic receipt reading is not set up." };
+  let file; try { file = receiptData(app, rec); } catch (err) { return { ok: false, error: "Could not open the receipt file." }; }
+  if (file.media === "application/pdf" && !PROVIDERS[p].pdf) return { ok: false, error: PROVIDERS[p].name + " cannot read PDF receipts; an admin will check it." };
+  if (p === "xai" && !/^image\/(jpeg|png)$/.test(file.media)) return { ok: false, error: "Grok reads only JPG and PNG receipts; an admin will check it." };
+  let text;
+  try { text = askAI(p, file); } catch (err) { return { ok: false, error: String((err && err.message) || err).replace(/^Error:\s*/, "") }; }
+  const m = String(text || "").match(/\{[\s\S]*\}/);
   try { return { ok: true, data: JSON.parse(m ? m[0] : text) }; } catch (_) { return { ok: false, error: "The receipt could not be read clearly." }; }
 }
 
@@ -218,4 +257,4 @@ function review(app, adminId, depId, action, note) {
   return out;
 }
 
-module.exports = { TAX, MIN, MAX, settingsObj, submit, review, accountMatches, evaluate, b64 };
+module.exports = { TAX, MIN, MAX, settingsObj, submit, review, accountMatches, evaluate, b64, providerName };

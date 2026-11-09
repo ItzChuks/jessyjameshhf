@@ -254,7 +254,8 @@ routerAdd("POST", "/api/jjhhf/admin/settings", (e) => {
 }, $apis.requireAuth());
 routerAdd("GET", "/api/jjhhf/admin/settings", (e) => {
   if (e.auth.getString("role") !== "admin") throw new ForbiddenError("Admins only.");
-  return e.json(200, Object.assign(require(`${__hooks}/transfers.js`).settingsObj($app), { ai: !!$os.getenv("ANTHROPIC_API_KEY") }));
+  const T = require(`${__hooks}/transfers.js`);
+  return e.json(200, Object.assign(T.settingsObj($app), { ai: !!T.providerName(), ai_name: T.providerName() }));
 }, $apis.requireAuth());
 
 // 17) Admin: add a plan a member was running manually (how long it has run and how much was paid); it carries on automatically.

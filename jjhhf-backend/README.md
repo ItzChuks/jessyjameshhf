@@ -60,8 +60,13 @@ Online payment partners (Flutterwave, Paystack, Monnify) are **paused**. Members
 
 1. Admin > Receipts > **Account and settings**: bank name, 10-digit account number, account name, automatic approval on/off,
    the largest amount credited automatically, and how many days old a receipt may be.
-2. Railway > Variables: `ANTHROPIC_API_KEY` (from console.anthropic.com) turns on automatic receipt reading.
-   Optional `RECEIPT_AI_MODEL` (default `claude-haiku-5-5`). Without the key every receipt waits for an admin.
+2. Railway > Variables: add ONE of these to turn on automatic receipt reading (without one, every receipt waits for an admin):
+   - `GEMINI_API_KEY` Google Gemini, from aistudio.google.com (free tier, no card; free-tier data may be used by Google)
+   - `XAI_API_KEY` Grok, from console.x.ai (reads JPG/PNG; PDF receipts go to an admin)
+   - `OPENAI_API_KEY` OpenAI (JPG/PNG; PDF receipts go to an admin)
+   - `ANTHROPIC_API_KEY` Anthropic Claude
+   If several are set, pick one with `RECEIPT_AI=gemini|xai|openai|anthropic`. `RECEIPT_AI_MODEL` overrides the model
+   (defaults: gemini-3.8-flash, grok-4, gpt-5-mini, claude-haiku-5-5). Admin > Receipts > Account and settings shows which one is on.
 3. A receipt is credited at once only when it is a successful transfer receipt that does not look edited, the amount is exactly
    amount + ₦100, it was paid into our account number, it is dated within the allowed days, and the same file or transaction
    reference was never uploaded before. Everything else waits in Admin > Receipts.
