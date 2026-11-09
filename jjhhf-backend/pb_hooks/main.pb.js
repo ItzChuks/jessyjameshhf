@@ -42,6 +42,14 @@ onRecordUpdateRequest((e) => {
   e.next();
 }, "users");
 
+// Plan code, payment progress and clearance fields of a membership are written by the server only (not even an admin via the API).
+onRecordUpdateRequest((e) => {
+  if (e.hasSuperuserAuth()) return e.next();
+  const o = e.record.original();
+  for (const f of ["clearance_paid_at"]) if (e.record.getString(f) !== o.getString(f)) throw new BadRequestError("That field cannot be changed.");
+  e.next();
+}, "subscriptions");
+
 // Joining a plan: only open plans, always starts "active".
 onRecordCreateRequest((e) => {
   if (e.hasSuperuserAuth()) return e.next();
@@ -52,7 +60,7 @@ onRecordCreateRequest((e) => {
   e.next();
 }, "subscriptions");
 
-// Payout requests are created by the server once the 3000 clearance fee is verified (see fees.js). This guard is a safety net:
+// Payout requests are created by the server once the ₦3,500 clearance fee is verified (see fees.js). This guard is a safety net:
 // the collection rule already blocks direct member requests, and the same checks apply to anything that gets through
 // (saving period over, plan fully paid, ANOTHER plan actively running, t-shirt fee paid).
 onRecordCreateRequest((e) => {

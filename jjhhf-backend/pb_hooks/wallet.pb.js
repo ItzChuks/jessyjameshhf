@@ -81,7 +81,7 @@ routerAdd("POST", "/api/jjhhf/wallet/credit", (e) => {
 }, $apis.requireAuth());
 
 // 4) Pay a fee or join a plan from the wallet: t-shirt (once), joining fee (per plan joined, plus the catch-up on a mid-season cash/foodie plan),
-//    payout clearance fee (per payout request). The amount is decided here, never by the browser.
+//    payout clearance fee (once per plan, before its payout request). The amount is decided here, never by the browser.
 routerAdd("POST", "/api/jjhhf/fee/pay", (e) => {
   const X = require(`${__hooks}/fees.js`), W = require(`${__hooks}/wallet.js`);
   const body = e.requestInfo().body || {}, uid = e.auth.id, type = String(body.type || "");

@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><link rel="stylesheet" href="tailwind.css?v=20261109c"><script src="theme.js?v=20261109c"></script><script src="https://cdn.jsdelivr.net/npm/pocketbase@0.26.8/dist/pocketbase.umd.js"></script><script src="mock.js?v=20261109c"></script><script src="pdf.js?v=20261109c"></script><script src="app.js?v=20261109c"></script><title>Dashboard – Jessy James Helping Hands Foundation</title></head>
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><link rel="stylesheet" href="tailwind.css?v=20261109e"><script src="theme.js?v=20261109e"></script><script src="https://cdn.jsdelivr.net/npm/pocketbase@0.26.8/dist/pocketbase.umd.js"></script><script src="mock.js?v=20261109e"></script><script src="pdf.js?v=20261109e"></script><script src="app.js?v=20261109e"></script><title>Dashboard – Jessy James Helping Hands Foundation</title></head>
 <body class="bg-slate-50 text-slate-800"><div id="app"></div>
 <script>
 if (guard()) {
@@ -28,7 +28,9 @@ const waitBanner = (ws, bal) => {
 window.join = async id => {
   const pl = (window._pl || []).find(p => p.id === id) || await pb.collection('plans').getOne(id).catch(() => null);
   if (!pl) return toast('That plan could not be found.', 1);
-  const [bal, mine] = await Promise.all([walletBal(), pb.collection('subscriptions').getList(1, 1, { filter: pb.filter('user = {:u} && plan = {:p} && status = "active"', { u: U().id, p: id }) }).then(r => r.totalItems).catch(() => 0)]);
+  const [bal, mine, myCodes] = await Promise.all([walletBal(), pb.collection('subscriptions').getList(1, 1, { filter: pb.filter('user = {:u} && plan = {:p} && status = "active"', { u: U().id, p: id }) }).then(r => r.totalItems).catch(() => 0),
+    pb.collection('subscriptions').getFullList({ filter: pb.filter('user = {:u} && code != "" && code_used_at = "" && code_admin = ""', { u: U().id }), expand: 'plan', sort: 'code_until' }).then(l => l.filter(x => codeStatus(x) === 'open')).catch(() => [])]);
+  const pre = window._useAllCodes; window._useAllCodes = false;          // "Use all my codes" from the overview
   const room = Math.max(0, MAX_SLOTS - mine);
   if (!room) return toast('You already have ' + MAX_SLOTS + ' running memberships of this plan, the most allowed. You can join again when one ends.', 1, 7000);
   const now = new Date().toISOString(), S = sched({ created: now }, pl), c = catchupCount({ created: now }, pl), catchup = c * pl.amount, first = isSeasonal(pl) ? 0 : pl.amount, each = FEES.join + catchup + first;
@@ -38,22 +40,33 @@ window.join = async id => {
   modal('Join ' + esc(pl.name),
     `<dl class="divide-y border rounded-lg px-3">${row('Contribution', naira(pl.amount) + ' / ' + FQ[pl.frequency])}${row('Plan length', monthsLabel(pl) + ' · ' + S.n + ' payment' + (S.n === 1 ? '' : 's'))}${row('Total payout', naira(payoutOf(pl)) + ' each')}${row('Payout opens', fmtDay(opens) + ' (' + payoutDays(pl) + ' days)')}${codeDays(pl) ? row('Your plan code', 'usable ' + codeDays(pl)) : ''}</dl>`
     + `<div class="text-sm"><span class="text-slate-600">How many times do you want to join?</span><div class="flex items-center gap-2 mt-1"><button type="button" data-q="-1" class="${sbtn}">−</button><input name="qty" type="number" inputmode="numeric" min="1" max="${room}" step="1" value="1" required class="${inp} text-center font-semibold"><button type="button" data-q="1" class="${sbtn}">+</button></div><p class="text-xs text-slate-500 mt-1">Each one is a separate membership with its own payments, payout and plan code. Up to ${MAX_SLOTS} per plan${mine ? ` (you already have ${mine}, so up to ${room} more)` : ''}.</p></div>`
-    + `<label class="block text-sm"><span class="text-slate-600">Plan code <span class="text-slate-400">(optional)</span></span><input name="code" autocomplete="off" placeholder="JJ-XXXX-XXXX" class="${inp} mt-1 font-mono uppercase tracking-wider"></label><p id="cst" class="text-xs text-slate-500 -mt-1">Have a plan code from one of your plans, or one shared with you? Enter it here. A code works once.</p>`
+    + (myCodes.length ? `<div class="text-sm"><div class="flex items-center justify-between gap-3"><span class="text-slate-600">Use your plan codes <span class="text-slate-400">(${myCodes.length} ready)</span></span><label class="flex items-center gap-2 text-xs font-medium text-emerald-800 cursor-pointer"><input type="checkbox" id="jc-all" class="w-4 h-4 rounded accent-emerald-700">Select all</label></div>
+      <div class="mt-1 max-h-44 overflow-y-auto border rounded-lg divide-y">${myCodes.map(x => `<label class="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-slate-50"><input type="checkbox" data-code="${esc(x.code)}" class="w-4 h-4 rounded accent-emerald-700"><span class="font-mono font-semibold tracking-wider text-slate-900">${esc(x.code)}</span><span class="text-xs text-slate-500 truncate">${esc(x.expand?.plan?.name || '')} · until ${lastDay(x)}</span></label>`).join('')}</div>
+      <p id="jc-note" class="text-xs text-slate-500 mt-1">Each new membership uses one code. Tick the codes to use, or Select all; the number of times you join goes up to match.</p></div>` : '')
+    + `<label class="block text-sm"><span class="text-slate-600">${myCodes.length ? 'Or enter a code shared with you' : 'Plan code'} <span class="text-slate-400">(optional)</span></span><input name="code" autocomplete="off" placeholder="JJ-XXXX-XXXX" class="${inp} mt-1 font-mono uppercase tracking-wider"></label><p id="cst" class="text-xs text-slate-500 -mt-1">Have a plan code from one of your plans, or one shared with you? Enter it here. A code works once.</p>`
     + `<dl class="divide-y border rounded-lg px-3">${row('Joining fee', naira(FEES.join))}${first ? row('First payment (today)', naira(first)) : ''}${c ? row('Catch-up (' + c + ' × ' + naira(pl.amount) + ')', naira(catchup)) : ''}${row('Per membership', naira(each), '', 'jq-each')}${row('Total from your wallet', naira(each), 'font-semibold', 'jq-total')}${row('Your wallet', naira(bal))}</dl>`
     + '<div id="jq-msg"></div>'
     + '<p class="text-xs text-slate-500">By joining you agree to the <a href="terms.html" target="_blank" class="text-emerald-800 underline">Terms and Conditions</a>.</p>',
     async d => {
-      const q = Math.min(room, Math.max(1, Math.floor(+d.qty || 1))), total = each * q, short = total - bal;
+      const codes = picked(), q = Math.min(room, Math.max(1, Math.floor(+d.qty || 1), codes.length + ((d.code || '').trim() ? 1 : 0))), total = each * q, short = total - bal;
       if (short > 0) { await startDeposit(short); return; }
-      await payFee({ type: 'join', plan: id, qty: q, code: (d.code || '').trim() });
-      toast((q > 1 ? 'Joined ' + q + ' times' : 'Plan joined') + ((d.code || '').trim() ? ' with your code' : '') + '. The joining fee' + (q > 1 ? 's' : '') + (first ? ' and first payment' + (q > 1 ? 's were' : ' were') : (q > 1 ? ' were' : ' was')) + ' taken from your wallet.', 0, 6000);
+      const r = await payFee({ type: 'join', plan: id, qty: q, code: (d.code || '').trim(), codes });
+      toast((q > 1 ? 'Joined ' + q + ' times' : 'Plan joined') + (r.codesUsed ? ' using ' + (r.codesUsed === 1 ? '1 code' : r.codesUsed + ' codes') : '') + '. The joining fee' + (q > 1 ? 's' : '') + (first ? ' and first payment' + (q > 1 ? 's were' : ' were') : (q > 1 ? ' were' : ' was')) + ' taken from your wallet.', 0, 6000);
       location.hash = 'mine';
     },
     'Pay ' + naira(each) + ' and join');
   // live totals as the number changes
   const M = document.querySelector('[data-ui="modal"]'), qi = M.querySelector('[name="qty"]'), sub = M.querySelector('button:not([type])');
+  const boxes = [...M.querySelectorAll('[data-code]')], all = M.querySelector('#jc-all');
+  const picked = () => boxes.filter(b => b.checked).map(b => b.dataset.code);
+  // ticking codes raises the number of times to join so every ticked code gets its own membership
+  const syncQty = () => { const k = picked().length; if (all) { all.checked = k === boxes.length; all.indeterminate = k > 0 && k < boxes.length; } if (k > +qi.value) qi.value = Math.min(room, k); if (k > room) { toast('You can join this plan ' + room + ' more time' + (room === 1 ? '' : 's') + ', so only ' + room + ' code' + (room === 1 ? '' : 's') + ' can be used here.', 1, 6000); boxes.filter(b => b.checked).slice(room).forEach(b => b.checked = false); } paint(); };
+  boxes.forEach(b => b.onchange = syncQty);
+  if (all) all.onchange = () => { boxes.forEach((b, i) => b.checked = all.checked && i < room); syncQty(); };
   const paint = () => {
-    const q = Math.min(room, Math.max(1, Math.floor(+qi.value || 1))), total = each * q, short = total - bal;
+    const q = Math.min(room, Math.max(1, Math.floor(+qi.value || 1), picked().length)), total = each * q, short = total - bal;
+    if (+qi.value !== q && document.activeElement !== qi) qi.value = q;
+    const k = picked().length; if ($('#jc-note')) $('#jc-note').innerHTML = k ? `<b class="text-emerald-800">${k} code${k === 1 ? '' : 's'} selected</b>, used on ${k === q ? (k === 1 ? 'your new membership' : 'all ' + q + ' new memberships') : k + ' of your ' + q + ' new memberships'}.` : 'Each new membership uses one code. Tick the codes to use, or Select all; the number of times you join goes up to match.';
     $('#jq-each').textContent = naira(each) + (q > 1 ? ' × ' + q : '');
     $('#jq-total').textContent = naira(total);
     $('#jq-msg').innerHTML = short > 0
@@ -62,9 +75,9 @@ window.join = async id => {
     sub.textContent = short > 0 ? 'Deposit ' + naira(short + FEES.tax) : 'Pay ' + naira(total) + ' and join' + (q > 1 ? ' ×' + q : '');
     const hide = short > 0; M.querySelector('[name="code"]').closest('label').classList.toggle('hidden', hide); $('#cst').classList.toggle('hidden', hide);
   };
-  M.querySelectorAll('[data-q]').forEach(b => b.onclick = () => { qi.value = Math.min(room, Math.max(1, (Math.floor(+qi.value) || 1) + +b.dataset.q)); paint(); });
-  qi.oninput = paint; qi.onblur = () => { qi.value = Math.min(room, Math.max(1, Math.floor(+qi.value || 1))); paint(); };
-  paint();
+  M.querySelectorAll('[data-q]').forEach(b => b.onclick = () => { qi.value = Math.min(room, Math.max(1, picked().length, (Math.floor(+qi.value) || 1) + +b.dataset.q)); paint(); });
+  qi.oninput = paint; qi.onblur = () => { qi.value = Math.min(room, Math.max(1, picked().length, Math.floor(+qi.value || 1))); paint(); };
+  if (pre && all) { all.checked = true; all.onchange(); } else paint();
   // live check of the code as it is typed
   const ci = M.querySelector('[name="code"]'), cst = $('#cst'); let ct;
   ci.oninput = () => {
@@ -79,9 +92,10 @@ window.join = async id => {
 };
 
 // Requesting a payout. Three things are checked first (the server enforces them as well):
-//   1) another plan must be actively running, 2) the one-time ₦5,000 t-shirt fee must be paid, 3) then the ₦3,000 clearance fee is taken from the wallet.
+//   1) another plan must be actively running, 2) the one-time ₦5,000 t-shirt fee must be paid, 3) then the ₦3,500 clearance fee is taken from the wallet (once per plan).
 window.payout = async sid => {
   let list, bal; try { [list, bal] = await Promise.all([subs(), walletBal()]); } catch (x) { return toast(x.message, 1); }
+  const cleared = !!(list.find(s => s.id === sid) || {}).clearance_paid_at;   // the clearance fee is paid once per plan
   if (!runningOthers(list, sid, planOf).length) return toast(PAYOUT_NEEDS_PLAN, 1, 7000);
   const bar2 = need => bal < need ? `<div class="rounded-lg border bg-red-50 border-red-200 text-red-700 p-3 text-sm">Your wallet has ${naira(bal)}. Deposit at least <b>${naira(need - bal)}</b> first (you pay ${naira(need - bal + FEES.tax)} with the tax charge).</div>` : `<p class="text-xs text-slate-500">Your wallet: ${naira(bal)}</p>`;
   if (!U().shirt_paid) return modal('Pay the t-shirt fee first',
@@ -94,9 +108,11 @@ window.payout = async sid => {
     async () => { location.hash = 'profile'; }, 'Go to Profile');
   modal('Request payout',
     `<p class="text-sm text-slate-600">Your payout will be paid to:</p><div class="rounded-lg border bg-slate-50 px-3 py-1">${payoutDetails(me)}</div><p class="text-xs text-slate-500">Not right? <a href="#profile" onclick="this.closest('[data-ui]').remove()" class="text-emerald-800 underline font-medium">Edit your Profile</a> first.</p>`
-    + `<div class="rounded-lg border bg-amber-50 border-amber-200 text-amber-800 p-3 text-sm">A clearance fee of <b>${naira(FEES.clearance)}</b> is taken from your wallet with every payout request. Your request is sent to the admin as soon as it is paid.</div>${bar2(FEES.clearance)}`,
-    async () => { if (bal < FEES.clearance) { await startDeposit(FEES.clearance - bal); return; } await payFee({ type: 'clearance', subscription: sid }); toast('Payout requested'); },
-    bal < FEES.clearance ? 'Deposit ' + naira(FEES.clearance - bal + FEES.tax) + '' : 'Pay ' + naira(FEES.clearance) + ' and request payout');
+    + (cleared
+      ? `<div class="rounded-lg border bg-emerald-50 border-emerald-200 text-emerald-800 p-3 text-sm">The <b>${naira(FEES.clearance)}</b> clearance fee for this plan is already paid, so nothing more is taken from your wallet.</div>`
+      : `<div class="rounded-lg border bg-amber-50 border-amber-200 text-amber-800 p-3 text-sm">A clearance fee of <b>${naira(FEES.clearance)}</b> must be paid for this plan before its payout can be requested. It is taken from your wallet once, and your request is sent to the admin as soon as it is paid.</div>${bar2(FEES.clearance)}`),
+    async () => { if (!cleared && bal < FEES.clearance) { await startDeposit(FEES.clearance - bal); return; } await payFee({ type: 'clearance', subscription: sid }); toast('Payout requested'); },
+    cleared ? 'Request payout' : bal < FEES.clearance ? 'Deposit ' + naira(FEES.clearance - bal + FEES.tax) + '' : 'Pay ' + naira(FEES.clearance) + ' and request payout');
 };
 
 const KIND = { topup: 'Deposit', contribution: 'Contribution', join: 'Joining fee', catchup: 'Catch-up', shirt: 'T-shirt fee', clearance: 'Clearance fee' };
@@ -108,7 +124,7 @@ const startApp = () => layout({ brand: BRAND_SHORT, nav: [['overview', 'Overview
     m.innerHTML = head('Welcome back, ' + esc((U().name || 'there').split(' ')[0]), 'Your wallet and your savings at a glance.', `<a href="#plans" class="${btn}">Browse plans</a>`)
       + (U().role !== 'admin' && !U().shirt_paid ? `<div class="mb-6 rounded-xl border bg-amber-50 border-amber-200 text-amber-800 p-4 text-sm">You can browse and join plans freely. The one-time <b>${naira(FEES.shirt)}</b> t-shirt fee is only needed when you request a payout.</div>` : '')
       + waitBanner(waits(s, p, bal), bal)
-      + (() => { const o = s.filter(x => codeStatus(x) === 'open'); return o.length ? `<div class="mb-6 rounded-xl border bg-emerald-50 border-emerald-200 text-emerald-800 p-4 text-sm"><p class="font-semibold">You have ${o.length === 1 ? 'a plan code' : o.length + ' plan codes'} ready to use</p><div class="mt-2 space-y-1.5">${o.map(x => `<div class="flex flex-wrap items-center gap-x-3 gap-y-1"><span class="font-mono font-semibold tracking-wider text-slate-900">${esc(x.code)}</span><button onclick="copyCode('${esc(x.code)}')" class="underline text-xs font-medium">Copy</button><span class="text-xs">from ${esc(planOf(x).name)} · use before the end of ${lastDay(x)}</span></div>`).join('')}</div><p class="text-xs mt-2">Enter a code in the Plan code box when you join a new plan, or share it with someone. Each code works once.</p></div>` : ''; })()
+      + (() => { const o = s.filter(x => codeStatus(x) === 'open'); return o.length ? `<div class="mb-6 rounded-xl border bg-emerald-50 border-emerald-200 text-emerald-800 p-4 text-sm"><p class="font-semibold">You have ${o.length === 1 ? 'a plan code' : o.length + ' plan codes'} ready to use</p><div class="mt-2 space-y-1.5">${o.slice(0, 5).map(x => `<div class="flex flex-wrap items-center gap-x-3 gap-y-1"><span class="font-mono font-semibold tracking-wider text-slate-900">${esc(x.code)}</span><button onclick="copyCode('${esc(x.code)}')" class="underline text-xs font-medium">Copy</button><span class="text-xs">from ${esc(planOf(x).name)} · use before the end of ${lastDay(x)}</span></div>`).join('')}${o.length > 5 ? `<p class="text-xs">and ${o.length - 5} more…</p>` : ''}</div><p class="text-xs mt-2">Tick your codes in the join window when you join a new plan (or use them all at once), or share a code with someone. Each code works once.</p>${o.length > 1 ? `<button onclick="window._useAllCodes=true;location.hash='plans';toast('Choose a plan: all ${o.length} codes will be ticked in the join window.',0,5000)" class="${btn} mt-3">Use all ${o.length} codes to join a plan</button>` : ''}</div>` : ''; })()
       + '<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-8">' + stat('Wallet balance', naira(bal), '<a href="#wallet" class="text-emerald-800 font-medium">Deposit</a>') + stat('Active plans', act.length) + stat('Total contributed', naira(sum(p)), 'Confirmed savings, excluding penalties') + stat('Expected payout', naira(act.reduce((a, x) => a + (payoutOf(planOf(x)) || 0), 0)), 'Across active plans') + '</div>'
       + '<div class="grid lg:grid-cols-5 gap-6"><div class="lg:col-span-2"><h2 class="text-sm font-semibold mb-3">Active plans</h2>' + (act.length ? '<div class="space-y-3">' + act.map(x => { const pl = planOf(x), t = pl.amount * sched(x, pl).n, pc = Math.min(100, Math.round(sum(p, x.id) / t * 100) || 0); return `<a href="#mine" class="block bg-white border rounded-xl p-4 hover:border-emerald-700"><div class="flex justify-between text-sm"><span class="font-medium">${esc(pl.name)}</span><span class="text-slate-500">${pc}%</span></div>${bar(pc)}<p class="text-xs text-slate-500 mt-2">${dueLine(planState(x, pl, p), pl.frequency)}</p></a>`; }).join('') + '</div>' : `<div class="bg-white border border-dashed rounded-xl p-6 text-sm text-slate-500">You have not joined a plan yet. <a href="#plans" class="text-emerald-800 font-medium">Browse plans</a></div>`) + '</div>'
       + '<div class="lg:col-span-3"><div class="flex justify-between mb-3"><h2 class="text-sm font-semibold">Recent payments</h2><a href="#payments" class="text-sm text-emerald-800 font-medium">View all</a></div>' + table(['Date', 'Plan', 'Amount', 'Status'], p.slice(0, 5).map(x => [date(x.created), esc(planOf(x.expand?.subscription || {}).name), naira(x.amount), badge(x.status)])) + '</div></div>';

@@ -2,7 +2,8 @@
 //   shirt      ₦5,000  one time. Members can use the dashboard, join plans and pay contributions without it;
 //                      it is only required when they request a payout ("unregistered" members cannot request payouts)
 //   join       ₦3,000  paid every time a member joins a plan; the plan is joined automatically once the payment is verified
-//   clearance  ₦3,000  paid with every payout request; the request is sent automatically once the payment is verified
+//   clearance  ₦3,500  paid ONCE per plan joined, before that plan's payout can be requested; the request is sent at the same time.
+//              If a payout request is rejected, the member can request again without paying the clearance fee a second time.
 // A payout request also needs ANOTHER plan of the same member to be actively running (see runningElsewhere).
 // KEEP IN SYNC with FEES in the frontend app.js (that copy is for display only).
 const W = require(`${__hooks}/wallet.js`), FEES = W.FEES;
@@ -49,6 +50,12 @@ function payoutProblem(app, uid, sid) {
   return "";
 }
 
+// True when the clearance fee has already been paid for this plan membership.
+function clearancePaid(app, sid) {
+  try { if (app.findRecordById("subscriptions", sid).getString("clearance_paid_at")) return true; } catch (_) { }
+  return app.findRecordsByFilter("fees", "subscription = {:s} && type = 'clearance' && status = 'confirmed'", "", 1, 0, { s: sid }).length > 0;
+}
+
 // Pays a fee from the wallet, all or nothing. type: shirt | join | clearance. Throws a member-facing error when it is not allowed.
 function pay(app, uid, type, body) {
   if (!FEES[type]) throw new BadRequestError("Unknown fee.");
@@ -61,7 +68,7 @@ function pay(app, uid, type, body) {
   };
   const short = amt => { const bal = W.balanceOf(app, uid); if (bal < amt) throw new BadRequestError("Your wallet needs " + W.naira(amt) + " for this. You have " + W.naira(bal) + ". Please top up " + W.naira(amt - bal) + "."); };
 
-  if (type === "join") return W.joinMany(app, uid, body.plan, body.code, body.qty);   // qty: join the same plan 1-50 times at once
+  if (type === "join") return W.joinMany(app, uid, body.plan, body.code, body.qty, body.codes);   // qty: join the same plan 1-50 times at once
 
   if (type === "shirt") {
     const u = app.findRecordById("users", uid);
@@ -81,12 +88,20 @@ function pay(app, uid, type, body) {
   if (why) throw new BadRequestError(why);
   if (!P.name || !P.bank || !/^\d{10}$/.test(P.acct) || !P.addr) throw new BadRequestError(PROFILE_MSG);
   const details = P.name + " · " + P.bank + " · " + P.acct + " · " + P.addr;   // a copy kept on the request, in case the profile changes later
-  short(FEES.clearance);
-  W.post(app, uid, -FEES.clearance, "clearance", "Payout clearance fee", { subscription: sid });
+  // the clearance fee is paid once per plan: a plan that has already paid it (e.g. after a rejected request) is not charged again
+  const paid = clearancePaid(app, sid);
+  if (!paid) {
+    short(FEES.clearance);
+    const pl = app.findRecordById("plans", app.findRecordById("subscriptions", sid).getString("plan")).getString("name");
+    W.post(app, uid, -FEES.clearance, "clearance", "Payout clearance fee · " + pl, { subscription: sid });
+    const s = app.findRecordById("subscriptions", sid);
+    s.set("clearance_paid_at", new Date().toISOString().replace("T", " ")); app.save(s);   // shown to the admin as "Clearance paid"
+  }
   const po = new Record(app.findCollectionByNameOrId("payouts"));
   po.set("user", uid); po.set("subscription", sid); po.set("note", details); po.set("status", "pending");
-  app.save(po); fee(FEES.clearance, { subscription: sid, details });
-  return {};
+  app.save(po);
+  if (!paid) fee(FEES.clearance, { subscription: sid, details });
+  return { clearanceCharged: !paid };
 }
 
-module.exports = { FEES, SHIRT_MSG, PROFILE_MSG, NEED_PLAN_MSG, payoutProblem, runningElsewhere, pay };
+module.exports = { FEES, SHIRT_MSG, PROFILE_MSG, NEED_PLAN_MSG, payoutProblem, runningElsewhere, clearancePaid, pay };

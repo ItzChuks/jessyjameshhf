@@ -61,7 +61,7 @@ Sign up on the website, then in the PocketBase panel open **users**, edit yourse
 - **Deposits:** through the member's provider (Flutterwave, Paystack or Monnify, shuffled per member), no BVN/NIN. ₦100 tax charge per deposit, added at checkout.
 - **Schedule** (Lagos time): the first payment is taken on the joining day together with the joining fee; then every 7 days from that day (weekly) or every day (daily). Each payment is taken from midnight on its due day and must be paid **before 12:00 noon**; still unpaid at noon, it costs double. The penalty never counts as savings.
 - **Payout date:** `plans.payout_after_days` (e.g. 30 for a 4-week plan; migration `1760000009` sets weeks × 7.5 on existing plans).
-- **Fees** from the wallet: joining ₦3,000 per plan, t-shirt ₦5,000 once (only needed for payouts), clearance ₦3,000 per payout request.
+- **Fees** from the wallet: joining ₦3,000 per plan, t-shirt ₦5,000 once (only needed for payouts), clearance ₦3,500 once per plan, before its payout request.
 - **Payout:** plan fully paid, its length ended, **another plan active and running for at least 2 weeks**, t-shirt fee paid, and **payout details saved on the Profile** (account name, bank, 10-digit account number, address; migration `1760000008`). The request stores a copy of those details; the admin sees them on Payouts and on the member page.
 
 **Keep in sync with the website's `app.js`:** `RULES` (`rules.js`), `FEES` (`wallet.js`), the tax charge (`deposits.js` `TAX`) and the 2-week payout rule (`rules.js` `PAYOUT_MIN_RUNNING_DAYS`).

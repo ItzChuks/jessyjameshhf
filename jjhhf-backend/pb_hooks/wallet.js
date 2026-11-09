@@ -3,7 +3,7 @@
 // fees, joining plans and contributions. All functions here expect to run INSIDE a transaction ($app.runInTransaction),
 // so a balance and its ledger line can never disagree.
 const R = require(`${__hooks}/rules.js`);
-const FEES = { shirt: 5000, join: 3000, clearance: 3000 };   // KEEP IN SYNC with FEES in the frontend app.js
+const FEES = { shirt: 5000, join: 3000, clearance: 3500 };   // KEEP IN SYNC with FEES in the frontend app.js
 // NOTE: PocketBase's JS engine does not support toLocaleString(locale), so numbers and dates are formatted by hand.
 const naira = n => "₦" + String(Math.round(Number(n || 0))).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -187,9 +187,15 @@ function joinPlan(app, uid, planId, code, opts = {}) {
 // A member may hold up to MAX_SLOTS running (active) memberships of the same plan, and can add several in one go.
 // Each one is a separate membership with its own joining fee, payments, payout and plan code. A plan code entered when
 // joining is used once, on the first of them. All or nothing: if the wallet cannot cover every one, none is created.
+// Bulk code reuse: "codes" is a list of plan codes (e.g. a member's own codes from earlier plans, or ones shared with them).
+// Each new membership uses one code, in order; joining fewer times than the number of codes is raised to that number.
 const MAX_SLOTS = 50;
-function joinMany(app, uid, planId, code, qty) {
-  const n = Math.floor(Number(qty || 1));
+function joinMany(app, uid, planId, code, qty, codes) {
+  const list = [];
+  [code].concat(Array.isArray(codes) ? codes : []).forEach(c => { if (String(c || "").trim()) { const k = normCode(c); if (!list.includes(k)) list.push(k); } });
+  if (list.length > MAX_SLOTS) throw new BadRequestError("You can use at most " + MAX_SLOTS + " codes at once.");
+  let n = Math.floor(Number(qty || 1));
+  if (n >= 1 && list.length > n) n = list.length;
   if (!(n >= 1 && n <= MAX_SLOTS)) throw new BadRequestError("You can join a plan 1 to " + MAX_SLOTS + " times at once.");
   let plan; try { plan = app.findRecordById("plans", String(planId || "")); } catch (_) { throw new BadRequestError("That plan does not exist."); }
   if (!plan.getBool("active")) throw new BadRequestError("That plan is not open for enrolment.");
@@ -203,10 +209,11 @@ function joinMany(app, uid, planId, code, qty) {
   if (n > 1 && bal < total) {
     throw new BadRequestError("Your wallet needs " + naira(total) + " to join this plan " + n + " times (" + naira(each) + " each: joining fee " + naira(FEES.join) + (first ? " + first payment " + naira(first) : "") + (c ? " + catch-up " + naira(c * pl.amount) : "") + "). You have " + naira(bal) + ". Please deposit " + naira(total - bal) + ".");
   }
+  list.forEach(k => { const cs = codeState(app, k); if (cs.status !== "valid") throw new BadRequestError(k + ": " + cs.message); });
   const subs = [];
-  for (let i = 0; i < n; i++) subs.push(joinPlan(app, uid, plan.id, i === 0 ? code : "", { noCollect: true }).subscription);
+  for (let i = 0; i < n; i++) subs.push(joinPlan(app, uid, plan.id, list[i] || "", { noCollect: true }).subscription);
   collect(app, uid);                                             // today's instalments, if the wallet still has enough
-  return { subscription: subs[0], subscriptions: subs, count: n };
+  return { subscription: subs[0], subscriptions: subs, count: n, codesUsed: list.length };
 }
 
 // Runs fn inside a transaction. A BadRequestError thrown inside loses its message on the way out of the transaction, so it is re-thrown here

@@ -40,8 +40,9 @@ function createMockPB() {
   const list = (c, o = {}) => sortBy(db[c].filter(r => test(r, o.filter)), o.sort).map(r => expand(r, o.expand));
   const col = c => ({
     async getFullList(o) { return list(c, o); },
+    async getFirstListItem(f, o = {}) { const r = list(c, { ...o, filter: f })[0]; if (!r) { const e = new Error("The requested resource wasn't found."); e.status = 404; throw e; } return r; },
     async getList(p, n, o) { const l = list(c, o); return { items: l.slice((p - 1) * n, p * n), totalItems: l.length, page: p, perPage: n }; },
-    async getOne(id) { const r = db[c].find(x => x.id === id); if (!r) throw new Error('Record not found.'); return r; },
+    async getOne(id, o = {}) { const r = db[c].find(x => x.id === id); if (!r) throw new Error('Record not found.'); return expand(r, o.expand); },
     async create(d) {
       d = { ...d }; delete d.passwordConfirm;
       if (c === 'users') { if (db.users.some(u => u.email === d.email)) throw new Error('That email is already registered.'); if (!d.terms_accepted) throw new Error('You must accept the Terms and Conditions to create an account.'); d.role = 'user'; d.shirt_paid = false; d.terms_accepted_at = now(); }
@@ -143,40 +144,42 @@ function createMockPB() {
       post(b.user, +b.amount, 'topup', 'Credited by admin · ' + b.ref, { ref: 'MANUAL-' + b.ref }); collect(b.user); save(); return { ok: true };
     }
     if (path.endsWith('/fee/pay')) {
-      const t = b.type, amt = { shirt: 5000, join: 3000, clearance: 3000 }[t]; db.deposits = db.deposits || [];
+      const t = b.type, amt = { shirt: 5000, join: 3000, clearance: 3500 }[t]; db.deposits = db.deposits || [];
       if (!amt) throw new Error('Unknown fee.');
       const short = need => { const bal = me.wallet_balance || 0; if (bal < need) throw new Error('Your wallet needs ' + n(need) + ' for this. You have ' + n(bal) + '. Please top up ' + n(need - bal) + '.'); };
       let out = {};
       if (t === 'shirt') { if (me.shirt_paid) throw new Error('You have already paid the t-shirt fee.'); short(amt); post(aid, -amt, 'shirt', 'T-shirt registration fee'); me.shirt_paid = true; me.shirt_paid_at = now(); emit('users', 'update', me); }
       else if (t === 'join') {
         const pl = db.plans.find(p => p.id === b.plan); if (!pl || pl.active === false) throw new Error('That plan is not open for enrolment.');
-        const q = Math.floor(+b.qty || 1); if (!(q >= 1 && q <= 50)) throw new Error('You can join a plan 1 to 50 times at once.');
+        const L = [...new Set([b.code, ...(b.codes || [])].filter(x => String(x || '').trim()).map(norm))];
+        let q = Math.floor(+b.qty || 1); if (L.length > q) q = L.length; if (!(q >= 1 && q <= 50)) throw new Error('You can join a plan 1 to 50 times at once.');
         const have = db.subscriptions.filter(x => x.user === aid && x.plan === pl.id && x.status === 'active').length;
         if (have + q > 50) throw new Error('You already have ' + have + ' running memberships of this plan. The limit is 50 per plan, so you can add up to ' + Math.max(0, 50 - have) + ' more.');
-        const cs = String(b.code || '').trim() ? codeState(b.code) : null; if (cs && cs.status !== 'valid') throw new Error(cs.message);
+        const CS = L.map(k => { const x = codeState(k); if (x.status !== 'valid') throw new Error(k + ': ' + x.message); return x; });
         const c = catchupCount({ created: now() }, pl), each = amt + c * pl.amount + (isSeasonal(pl) ? 0 : pl.amount);   // fee + first payment
         short(each * q);
         const ids = [];
         for (let i = 0; i < q; i++) {
           const s = { id: uid(), created: now(), user: aid, plan: pl.id, status: 'active' };
-          if (cs && i === 0) s.joined_code = cs.code; giveCode(s, pl);
+          if (CS[i]) s.joined_code = CS[i].code; giveCode(s, pl);
           db.subscriptions.push(s); emit('subscriptions', 'create', s); ids.push(s.id);
           post(aid, -amt, 'join', 'Joining fee · ' + pl.name, { plan: pl.id, subscription: s.id });
           const f = { id: uid(), created: now(), user: aid, type: 'join', amount: amt, status: 'confirmed', plan: pl.id, subscription: s.id, note: 'Wallet' }; db.fees.push(f); emit('fees', 'create', f);
           if (c) { const p = { id: uid(), created: now(), user: aid, subscription: s.id, amount: c * pl.amount, penalty: 0, installments: c, late_count: 0, note: 'Catch-up · ' + c + ' instalments', status: 'confirmed' }; db.payments.push(p); emit('payments', 'create', p); post(aid, -c * pl.amount, 'catchup', 'Catch-up · ' + pl.name, { plan: pl.id, subscription: s.id }); }
         }
-        if (cs) { Object.assign(cs.rec, { code_used_by: aid, code_used_name: me.name || me.email, code_used_at: now(), code_used_sub: ids[0] }); emit('subscriptions', 'update', cs.rec); }
-        out = { subscription: ids[0], subscriptions: ids, count: q }; collect(aid);
+        CS.forEach((cs, i) => { Object.assign(cs.rec, { code_used_by: aid, code_used_name: me.name || me.email, code_used_at: now(), code_used_sub: ids[i] }); emit('subscriptions', 'update', cs.rec); });
+        out = { subscription: ids[0], subscriptions: ids, count: q, codesUsed: CS.length }; collect(aid);
       } else {
         const planOf = s => db.plans.find(p => p.id === s.plan) || {};
         if (!runningOthers(db.subscriptions.filter(s => s.user === aid), b.subscription, planOf).length) throw new Error(PAYOUT_NEEDS_PLAN);
         if (!me.shirt_paid) throw new Error(NEED);
         if (!payoutReady(me)) throw new Error('Add your payout details (account name, bank, 10-digit account number and address) on your Profile page before requesting a payout.');
         b.details = [me.bank_account_name, me.bank_name, me.bank_account_number, me.address].join(' · ');
-        short(amt); post(aid, -amt, 'clearance', 'Payout clearance fee', { subscription: b.subscription });
+        const sub = db.subscriptions.find(x => x.id === b.subscription) || {}; b.cleared = !!sub.clearance_paid_at;
+        if (!b.cleared) { short(amt); post(aid, -amt, 'clearance', 'Payout clearance fee', { subscription: b.subscription }); sub.clearance_paid_at = now(); emit('subscriptions', 'update', sub); }
         const p = { id: uid(), created: now(), user: aid, subscription: b.subscription, note: b.details, status: 'pending' }; db.payouts.push(p); emit('payouts', 'create', p);
       }
-      if (t !== 'join') { const f = { id: uid(), created: now(), user: aid, type: t, amount: amt, status: 'confirmed', plan: b.plan || '', subscription: b.subscription || '', details: b.details || '', note: 'Wallet' }; db.fees.push(f); emit('fees', 'create', f); }
+      if (t !== 'join' && !b.cleared) { const f = { id: uid(), created: now(), user: aid, type: t, amount: amt, status: 'confirmed', plan: b.plan || '', subscription: b.subscription || '', details: b.details || '', note: 'Wallet' }; db.fees.push(f); emit('fees', 'create', f); }
       save(); return out;
     }
     return { status: 'confirmed' };
