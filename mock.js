@@ -2,7 +2,7 @@
 function createMockPB() {
   const mem = {};
   const ls = { get: k => { try { return localStorage.getItem(k); } catch (e) { return mem[k] ?? null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch (e) { mem[k] = v; } }, del: k => { try { localStorage.removeItem(k); } catch (e) { delete mem[k]; } } };
-  const KEY = 'jjhhf_db_v3', REL = { user: 'users', plan: 'plans', subscription: 'subscriptions' };
+  const KEY = 'jjhhf_db_v3', REL = { user: 'users', plan: 'plans', subscription: 'subscriptions', code_used_by: 'users' };
   let db = JSON.parse(ls.get(KEY) || 'null');
   const save = () => ls.set(KEY, JSON.stringify(db));
   // real-time emulation: listeners per collection; other open tabs are told through a BroadcastChannel
@@ -32,7 +32,7 @@ function createMockPB() {
   if (!db.deposits) { db.deposits = []; save(); }
   if (!db.fees) { db.fees = []; db.users.forEach(u => { if (u.shirt_paid === undefined) u.shirt_paid = true; }); save(); }   // demo data saved before fees existed
   if (!db.wallet_txs) { db.wallet_txs = []; db.users.forEach(u => { if (u.wallet_balance === undefined) u.wallet_balance = u.email === 'user@jjhhf.test' ? 20000 : 0; }); save(); }   // demo data saved before wallets existed
-  const test = (r, f) => !f || f.split('&&').every(c => { const m = c.trim().match(/^(\w+)\s*=\s*(?:"([^"]*)"|(true|false))$/); if (!m) return true; return r[m[1]] === (m[2] !== undefined ? m[2] : m[3] === 'true'); });
+  const test = (r, f) => !f || f.split('&&').every(c => { const m = c.trim().match(/^(\w+)\s*=\s*(?:"([^"]*)"|(true|false))$/); if (!m) return true; return m[2] !== undefined ? (r[m[1]] ?? '') === m[2] : !!r[m[1]] === (m[3] === 'true'); });
   const sortBy = (l, s) => { const k = (s || '-created').split(','); return [...l].sort((a, b) => { for (let x of k) { x = x.trim(); const d = x[0] === '-', f = d ? x.slice(1) : x; if (a[f] < b[f]) return d ? 1 : -1; if (a[f] > b[f]) return d ? -1 : 1; } return 0; }); };
   const expand = (r, paths) => { if (!paths) return r; const o = { ...r, expand: {} }; paths.split(',').forEach(p => { const [f, ...rest] = p.trim().split('.'); const x = db[REL[f]].find(z => z.id === r[f]); if (x) o.expand[f] = rest.length ? expand(x, rest.join('.')) : x; }); return o; };
   let aid = null; try { const a = JSON.parse(ls.get('pocketbase_auth') || 'null'); aid = a && a.model && a.model.id; } catch (e) {}
@@ -89,7 +89,8 @@ function createMockPB() {
     c = norm(c); const r = db.subscriptions.find(x => x.code === c), t = Date.now();
     if (!r) return { status: 'invalid', code: c, message: 'That code does not exist. Check it and try again.' };
     const pl = db.plans.find(p => p.id === r.plan) || {}, last = new Date(parseTs(r.code_until).getTime() - 1).toLocaleDateString('en-GB', { timeZone: 'Africa/Lagos', day: 'numeric', month: 'short', year: 'numeric' });
-    if (r.code_used_at) return { status: 'used', code: c, plan: pl.name, rec: r, message: 'This code has already been used.' };
+    if (r.code_used_at || r.code_admin === 'used') return { status: 'used', code: c, plan: pl.name, rec: r, message: 'This code has already been used.' };
+    if (r.code_admin === 'expired') return { status: 'expired', code: c, plan: pl.name, rec: r, message: 'This code has expired.' };
     if (t >= parseTs(r.code_until).getTime()) return { status: 'expired', code: c, plan: pl.name, rec: r, message: 'This code expired at the end of ' + last + '.' };
     if (t < parseTs(r.code_from).getTime()) return { status: 'not_yet', code: c, plan: pl.name, rec: r, message: 'This code can only be used from ' + new Date(parseTs(r.code_from)).toLocaleString('en-GB', { timeZone: 'Africa/Lagos' }) + '.' };
     return { status: 'valid', code: c, plan: pl.name, rec: r, message: 'Code accepted. It can be used until the end of ' + last + '.' };
@@ -117,6 +118,26 @@ function createMockPB() {
     }
     if (path.endsWith('/wallet/verify')) { const d = (db.deposits || []).find(x => x.tx_ref === b.tx_ref); return d ? { status: d.status, amount: d.amount, fee: d.fee, total: d.total } : { status: 'pending' }; }
     if (path.endsWith('/code/check')) return codeState(b.code);
+    if (path.endsWith('/admin/code-status')) {
+      if (me.role !== 'admin') throw new Error('Admins only.');
+      const r = db.subscriptions.find(x => x.id === b.subscription); if (!r || !r.code) throw new Error('Plan code not found.');
+      if (r.code_used_at) throw new Error('This code was used by ' + (r.code_used_name || 'a member') + ', so its status cannot be changed.');
+      r.code_admin = b.status === 'auto' ? '' : b.status; r.code_admin_at = b.status === 'auto' ? '' : now(); emit('subscriptions', 'update', r); save(); return { ok: true };
+    }
+    // demo: every provider counts as set up; the draw goes to the provider with the fewest members
+    const GWS = ['flutterwave', 'paystack', 'monnify'], drawGw = () => { const c = Object.fromEntries(GWS.map(g => [g, db.users.filter(u => u.gateway === g).length])), min = Math.min(...GWS.map(g => c[g])), low = GWS.filter(g => c[g] === min); return low[Math.floor(Math.random() * low.length)]; };
+    if (path.endsWith('/admin/gateway')) {
+      if (me.role !== 'admin') throw new Error('Admins only.');
+      const u = db.users.find(x => x.id === b.user); if (!u) throw new Error('Member not found.');
+      u.gateway = b.gateway || drawGw(); u.gateway_manual = !!b.gateway; emit('users', 'update', u); save(); return { gateway: u.gateway, manual: u.gateway_manual };
+    }
+    if (path.endsWith('/admin/gateway/shuffle')) {
+      if (me.role !== 'admin') throw new Error('Admins only.');
+      const l = db.users.filter(u => u.role !== 'admin' && (b.mode === 'all' ? !u.gateway_manual : !GWS.includes(u.gateway)));
+      if (b.mode === 'all') l.forEach(u => u.gateway = '');
+      let changed = 0; l.sort(() => Math.random() - .5).forEach(u => { const g = drawGw(); if (u.gateway !== g) changed++; u.gateway = g; u.gateway_manual = false; emit('users', 'update', u); });
+      save(); return { changed, total: l.length };
+    }
     if (path.endsWith('/wallet/credit')) {
       if (me.role !== 'admin') throw new Error('Admins only.');
       post(b.user, +b.amount, 'topup', 'Credited by admin · ' + b.ref, { ref: 'MANUAL-' + b.ref }); collect(b.user); save(); return { ok: true };
@@ -129,15 +150,23 @@ function createMockPB() {
       if (t === 'shirt') { if (me.shirt_paid) throw new Error('You have already paid the t-shirt fee.'); short(amt); post(aid, -amt, 'shirt', 'T-shirt registration fee'); me.shirt_paid = true; me.shirt_paid_at = now(); emit('users', 'update', me); }
       else if (t === 'join') {
         const pl = db.plans.find(p => p.id === b.plan); if (!pl || pl.active === false) throw new Error('That plan is not open for enrolment.');
+        const q = Math.floor(+b.qty || 1); if (!(q >= 1 && q <= 50)) throw new Error('You can join a plan 1 to 50 times at once.');
+        const have = db.subscriptions.filter(x => x.user === aid && x.plan === pl.id && x.status === 'active').length;
+        if (have + q > 50) throw new Error('You already have ' + have + ' running memberships of this plan. The limit is 50 per plan, so you can add up to ' + Math.max(0, 50 - have) + ' more.');
         const cs = String(b.code || '').trim() ? codeState(b.code) : null; if (cs && cs.status !== 'valid') throw new Error(cs.message);
-        const s = { id: uid(), created: now(), user: aid, plan: pl.id, status: 'active' }, c = catchupCount(s, pl), total = amt + c * pl.amount + (isSeasonal(pl) ? 0 : pl.amount);   // fee + first payment
-        short(total);
-        if (cs) s.joined_code = cs.code; giveCode(s, pl);
-        db.subscriptions.push(s); emit('subscriptions', 'create', s);
-        if (cs) { Object.assign(cs.rec, { code_used_by: aid, code_used_name: me.name || me.email, code_used_at: now(), code_used_sub: s.id }); emit('subscriptions', 'update', cs.rec); }
-        post(aid, -amt, 'join', 'Joining fee · ' + pl.name, { plan: pl.id, subscription: s.id });
-        if (c) { const p = { id: uid(), created: now(), user: aid, subscription: s.id, amount: c * pl.amount, penalty: 0, installments: c, late_count: 0, note: 'Catch-up · ' + c + ' instalments', status: 'confirmed' }; db.payments.push(p); emit('payments', 'create', p); post(aid, -c * pl.amount, 'catchup', 'Catch-up · ' + pl.name, { plan: pl.id, subscription: s.id }); }
-        out = { subscription: s.id, catchup: c * pl.amount, instalments: c }; collect(aid);
+        const c = catchupCount({ created: now() }, pl), each = amt + c * pl.amount + (isSeasonal(pl) ? 0 : pl.amount);   // fee + first payment
+        short(each * q);
+        const ids = [];
+        for (let i = 0; i < q; i++) {
+          const s = { id: uid(), created: now(), user: aid, plan: pl.id, status: 'active' };
+          if (cs && i === 0) s.joined_code = cs.code; giveCode(s, pl);
+          db.subscriptions.push(s); emit('subscriptions', 'create', s); ids.push(s.id);
+          post(aid, -amt, 'join', 'Joining fee · ' + pl.name, { plan: pl.id, subscription: s.id });
+          const f = { id: uid(), created: now(), user: aid, type: 'join', amount: amt, status: 'confirmed', plan: pl.id, subscription: s.id, note: 'Wallet' }; db.fees.push(f); emit('fees', 'create', f);
+          if (c) { const p = { id: uid(), created: now(), user: aid, subscription: s.id, amount: c * pl.amount, penalty: 0, installments: c, late_count: 0, note: 'Catch-up · ' + c + ' instalments', status: 'confirmed' }; db.payments.push(p); emit('payments', 'create', p); post(aid, -c * pl.amount, 'catchup', 'Catch-up · ' + pl.name, { plan: pl.id, subscription: s.id }); }
+        }
+        if (cs) { Object.assign(cs.rec, { code_used_by: aid, code_used_name: me.name || me.email, code_used_at: now(), code_used_sub: ids[0] }); emit('subscriptions', 'update', cs.rec); }
+        out = { subscription: ids[0], subscriptions: ids, count: q }; collect(aid);
       } else {
         const planOf = s => db.plans.find(p => p.id === s.plan) || {};
         if (!runningOthers(db.subscriptions.filter(s => s.user === aid), b.subscription, planOf).length) throw new Error(PAYOUT_NEEDS_PLAN);
@@ -148,7 +177,6 @@ function createMockPB() {
         const p = { id: uid(), created: now(), user: aid, subscription: b.subscription, note: b.details, status: 'pending' }; db.payouts.push(p); emit('payouts', 'create', p);
       }
       if (t !== 'join') { const f = { id: uid(), created: now(), user: aid, type: t, amount: amt, status: 'confirmed', plan: b.plan || '', subscription: b.subscription || '', details: b.details || '', note: 'Wallet' }; db.fees.push(f); emit('fees', 'create', f); }
-      else { const f = { id: uid(), created: now(), user: aid, type: 'join', amount: amt, status: 'confirmed', plan: b.plan, subscription: out.subscription, note: 'Wallet' }; db.fees.push(f); emit('fees', 'create', f); }
       save(); return out;
     }
     return { status: 'confirmed' };

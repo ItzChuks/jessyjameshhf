@@ -15,6 +15,13 @@ onRecordCreateRequest((e) => {
   e.next();
 }, "users");
 
+// Every new member is given a payment provider automatically (balanced random draw, see gateways.js). If no provider is set up yet,
+// the member is picked up later by the 15-minute job (wallet.pb.js) or at their first deposit.
+onRecordAfterCreateSuccess((e) => {
+  e.next();
+  try { require(`${__hooks}/gateways.js`).assign(e.app, e.record.id); } catch (err) { console.log("jjhhf gateway assign:", e.record.id, String(err)); }
+}, "users");
+
 // Wallet fields can only be changed by the server (top-ups, fees, collections), never through the API, not even by an admin.
 onRecordUpdateRequest((e) => {
   if (e.hasSuperuserAuth()) return e.next();
@@ -23,7 +30,7 @@ onRecordUpdateRequest((e) => {
     if (f === "wallet_balance" ? e.record.getFloat(f) !== o.getFloat(f) : e.record.getString(f) !== o.getString(f)) throw new BadRequestError("That field cannot be changed.");
   }
   // the payment provider is given by the server (or changed by an admin), never chosen by the member
-  if (e.record.getString("gateway") !== o.getString("gateway")) {
+  if (e.record.getString("gateway") !== o.getString("gateway") || e.record.getBool("gateway_manual") !== o.getBool("gateway_manual")) {
     if (!e.auth || e.auth.getString("role") !== "admin") throw new BadRequestError("That field cannot be changed.");
     if (e.record.getString("gateway") && !["flutterwave", "paystack", "monnify"].includes(e.record.getString("gateway"))) throw new BadRequestError("Unknown payment provider.");
   }

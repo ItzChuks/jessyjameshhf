@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><link rel="stylesheet" href="tailwind.css?v=20261109b"><script src="theme.js?v=20261109b"></script><script src="https://cdn.jsdelivr.net/npm/pocketbase@0.26.8/dist/pocketbase.umd.js"></script><script src="mock.js?v=20261109b"></script><script src="pdf.js?v=20261109b"></script><script src="app.js?v=20261109b"></script><title>Dashboard – Jessy James Helping Hands Foundation</title></head>
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><link rel="stylesheet" href="tailwind.css?v=20261109c"><script src="theme.js?v=20261109c"></script><script src="https://cdn.jsdelivr.net/npm/pocketbase@0.26.8/dist/pocketbase.umd.js"></script><script src="mock.js?v=20261109c"></script><script src="pdf.js?v=20261109c"></script><script src="app.js?v=20261109c"></script><title>Dashboard – Jessy James Helping Hands Foundation</title></head>
 <body class="bg-slate-50 text-slate-800"><div id="app"></div>
 <script>
 if (guard()) {
@@ -23,29 +23,50 @@ const waitBanner = (ws, bal) => {
   return `<div class="mb-6 rounded-xl border bg-red-50 border-red-200 text-red-700 p-4 text-sm flex flex-wrap items-center justify-between gap-3"><p><b>${w.length === 1 ? '1 plan is' : w.length + ' plans are'} waiting for money:</b> ${w.map(i => esc(i.pl.name)).join(', ')}. Deposit at least <b>${naira(need)}</b> into your wallet and ${w.length === 1 ? 'it is' : 'they are'} paid automatically.</p><button onclick="depositBox(${Math.max(100, need)})" class="${btn}">Deposit now</button></div>`;
 };
 
-// Joining a plan. The joining fee is taken from the wallet. An optional plan code (the member's own or one shared with them) can be entered.
+// Joining a plan, once or several times at once (up to MAX_SLOTS running memberships of the same plan). Each time is a separate
+// membership with its own joining fee, payments, payout and plan code. An optional plan code applies once, to the first one.
 window.join = async id => {
   const pl = (window._pl || []).find(p => p.id === id) || await pb.collection('plans').getOne(id).catch(() => null);
   if (!pl) return toast('That plan could not be found.', 1);
-  const bal = await walletBal(), now = new Date().toISOString(), S = sched({ created: now }, pl), c = catchupCount({ created: now }, pl), catchup = c * pl.amount, first = isSeasonal(pl) ? 0 : pl.amount, total = FEES.join + catchup + first, short = total - bal;
+  const [bal, mine] = await Promise.all([walletBal(), pb.collection('subscriptions').getList(1, 1, { filter: pb.filter('user = {:u} && plan = {:p} && status = "active"', { u: U().id, p: id }) }).then(r => r.totalItems).catch(() => 0)]);
+  const room = Math.max(0, MAX_SLOTS - mine);
+  if (!room) return toast('You already have ' + MAX_SLOTS + ' running memberships of this plan, the most allowed. You can join again when one ends.', 1, 7000);
+  const now = new Date().toISOString(), S = sched({ created: now }, pl), c = catchupCount({ created: now }, pl), catchup = c * pl.amount, first = isSeasonal(pl) ? 0 : pl.amount, each = FEES.join + catchup + first;
   const opens = termEnd({ created: now }, pl);
-  const row = (k, v, cls = '') => `<div class="flex justify-between gap-4 py-2 text-sm ${cls}"><dt class="text-slate-500">${k}</dt><dd class="font-medium text-slate-900 text-right">${v}</dd></div>`;
+  const row = (k, v, cls = '', vid = '') => `<div class="flex justify-between gap-4 py-2 text-sm ${cls}"><dt class="text-slate-500">${k}</dt><dd ${vid ? `id="${vid}"` : ''} class="font-medium text-slate-900 text-right">${v}</dd></div>`;
+  const sbtn = 'w-10 h-10 shrink-0 rounded-lg border bg-white text-lg font-semibold text-slate-700 hover:bg-slate-100';
   modal('Join ' + esc(pl.name),
-    `<dl class="divide-y border rounded-lg px-3">${row('Contribution', naira(pl.amount) + ' / ' + FQ[pl.frequency])}${row('Plan length', monthsLabel(pl) + ' · ' + S.n + ' payment' + (S.n === 1 ? '' : 's'))}${row('Total payout', naira(payoutOf(pl)))}${row('Payout opens', fmtDay(opens) + ' (' + payoutDays(pl) + ' days)')}${codeDays(pl) ? row('Your plan code', 'usable ' + codeDays(pl)) : ''}</dl>`
+    `<dl class="divide-y border rounded-lg px-3">${row('Contribution', naira(pl.amount) + ' / ' + FQ[pl.frequency])}${row('Plan length', monthsLabel(pl) + ' · ' + S.n + ' payment' + (S.n === 1 ? '' : 's'))}${row('Total payout', naira(payoutOf(pl)) + ' each')}${row('Payout opens', fmtDay(opens) + ' (' + payoutDays(pl) + ' days)')}${codeDays(pl) ? row('Your plan code', 'usable ' + codeDays(pl)) : ''}</dl>`
+    + `<div class="text-sm"><span class="text-slate-600">How many times do you want to join?</span><div class="flex items-center gap-2 mt-1"><button type="button" data-q="-1" class="${sbtn}">−</button><input name="qty" type="number" inputmode="numeric" min="1" max="${room}" step="1" value="1" required class="${inp} text-center font-semibold"><button type="button" data-q="1" class="${sbtn}">+</button></div><p class="text-xs text-slate-500 mt-1">Each one is a separate membership with its own payments, payout and plan code. Up to ${MAX_SLOTS} per plan${mine ? ` (you already have ${mine}, so up to ${room} more)` : ''}.</p></div>`
     + `<label class="block text-sm"><span class="text-slate-600">Plan code <span class="text-slate-400">(optional)</span></span><input name="code" autocomplete="off" placeholder="JJ-XXXX-XXXX" class="${inp} mt-1 font-mono uppercase tracking-wider"></label><p id="cst" class="text-xs text-slate-500 -mt-1">Have a plan code from one of your plans, or one shared with you? Enter it here. A code works once.</p>`
-    + `<dl class="divide-y border rounded-lg px-3">${row('Joining fee', naira(FEES.join))}${first ? row('First payment (today)', naira(first)) : ''}${c ? row('Catch-up (' + c + ' × ' + naira(pl.amount) + ')', naira(catchup)) : ''}${row('Total from your wallet', naira(total), 'font-semibold')}${row('Your wallet', naira(bal))}</dl>`
-    + (short > 0 ? `<div class="rounded-lg border bg-red-50 border-red-200 text-red-700 p-3 text-sm">Your wallet is short by <b>${naira(short)}</b>. Deposit it first: you pay <b>${naira(short + FEES.tax)}</b> (includes the ${naira(FEES.tax)} tax charge), then come back to join.</div>` : `<div class="rounded-lg border bg-emerald-50 border-emerald-200 text-emerald-800 p-3 text-sm">After joining, your wallet will hold <b>${naira(bal - total)}</b>. ${S.n > 1 ? `Your next payment is taken automatically on <b>${fmtDay(collectAt({ created: now }, pl, 1))}</b>, then every ${pl.frequency === 'daily' ? 'day' : '7 days'}.` : ''}</div>`)
+    + `<dl class="divide-y border rounded-lg px-3">${row('Joining fee', naira(FEES.join))}${first ? row('First payment (today)', naira(first)) : ''}${c ? row('Catch-up (' + c + ' × ' + naira(pl.amount) + ')', naira(catchup)) : ''}${row('Per membership', naira(each), '', 'jq-each')}${row('Total from your wallet', naira(each), 'font-semibold', 'jq-total')}${row('Your wallet', naira(bal))}</dl>`
+    + '<div id="jq-msg"></div>'
     + '<p class="text-xs text-slate-500">By joining you agree to the <a href="terms.html" target="_blank" class="text-emerald-800 underline">Terms and Conditions</a>.</p>',
     async d => {
+      const q = Math.min(room, Math.max(1, Math.floor(+d.qty || 1))), total = each * q, short = total - bal;
       if (short > 0) { await startDeposit(short); return; }
-      const r = await payFee({ type: 'join', plan: id, code: (d.code || '').trim() });
-      toast('Plan joined' + ((d.code || '').trim() ? ' with your code' : '') + '. The joining fee' + (first ? ' and your first payment were' : ' was') + ' taken from your wallet.', 0, 6000);
+      await payFee({ type: 'join', plan: id, qty: q, code: (d.code || '').trim() });
+      toast((q > 1 ? 'Joined ' + q + ' times' : 'Plan joined') + ((d.code || '').trim() ? ' with your code' : '') + '. The joining fee' + (q > 1 ? 's' : '') + (first ? ' and first payment' + (q > 1 ? 's were' : ' were') : (q > 1 ? ' were' : ' was')) + ' taken from your wallet.', 0, 6000);
       location.hash = 'mine';
     },
-    short > 0 ? 'Deposit ' + naira(short + FEES.tax) + '' : 'Pay ' + naira(total) + ' and join');
+    'Pay ' + naira(each) + ' and join');
+  // live totals as the number changes
+  const M = document.querySelector('[data-ui="modal"]'), qi = M.querySelector('[name="qty"]'), sub = M.querySelector('button:not([type])');
+  const paint = () => {
+    const q = Math.min(room, Math.max(1, Math.floor(+qi.value || 1))), total = each * q, short = total - bal;
+    $('#jq-each').textContent = naira(each) + (q > 1 ? ' × ' + q : '');
+    $('#jq-total').textContent = naira(total);
+    $('#jq-msg').innerHTML = short > 0
+      ? `<div class="rounded-lg border bg-red-50 border-red-200 text-red-700 p-3 text-sm">Your wallet is short by <b>${naira(short)}</b>. Deposit it first: you pay <b>${naira(short + FEES.tax)}</b> (includes the ${naira(FEES.tax)} tax charge), then come back to join.</div>`
+      : `<div class="rounded-lg border bg-emerald-50 border-emerald-200 text-emerald-800 p-3 text-sm">After joining, your wallet will hold <b>${naira(bal - total)}</b>. ${S.n > 1 ? `Your next payment${q > 1 ? 's' : ''} (${naira(pl.amount * q)}) ${q > 1 ? 'are' : 'is'} taken automatically on <b>${fmtDay(collectAt({ created: now }, pl, 1))}</b>, then every ${pl.frequency === 'daily' ? 'day' : '7 days'}.` : ''}</div>`;
+    sub.textContent = short > 0 ? 'Deposit ' + naira(short + FEES.tax) : 'Pay ' + naira(total) + ' and join' + (q > 1 ? ' ×' + q : '');
+    const hide = short > 0; M.querySelector('[name="code"]').closest('label').classList.toggle('hidden', hide); $('#cst').classList.toggle('hidden', hide);
+  };
+  M.querySelectorAll('[data-q]').forEach(b => b.onclick = () => { qi.value = Math.min(room, Math.max(1, (Math.floor(+qi.value) || 1) + +b.dataset.q)); paint(); });
+  qi.oninput = paint; qi.onblur = () => { qi.value = Math.min(room, Math.max(1, Math.floor(+qi.value || 1))); paint(); };
+  paint();
   // live check of the code as it is typed
-  const ci = document.querySelector('[data-ui="modal"] [name="code"]'), cst = $('#cst'); let ct;
-  if (short > 0) { ci.closest('label').classList.add('hidden'); cst.classList.add('hidden'); }
+  const ci = M.querySelector('[name="code"]'), cst = $('#cst'); let ct;
   ci.oninput = () => {
     clearTimeout(ct); const v = ci.value.trim();
     if (!v) { cst.className = 'text-xs text-slate-500 -mt-1'; cst.textContent = 'Have a plan code from one of your plans, or one shared with you? Enter it here. A code works once.'; return; }

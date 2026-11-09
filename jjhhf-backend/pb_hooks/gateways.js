@@ -1,6 +1,8 @@
 // Payment providers for wallet deposits: Flutterwave, Paystack and Monnify, all through their hosted checkout pages.
-// Each member is given one provider at random the first time they deposit (only providers whose keys are set are used), and keeps it.
-// An admin can move a member to another provider (Admin > Users > member).
+// Providers are given out AUTOMATICALLY: every new member is given one at random when they sign up (members without one are picked up
+// every 15 minutes, and at their first deposit at the latest). The draw is balanced: it picks at random among the providers that
+// currently have the fewest members, so members end up spread evenly across Flutterwave, Paystack and Monnify.
+// An admin can still set a member's provider by hand (Admin > Users > member), set it back to Automatic, or reshuffle everyone.
 //
 // Environment variables (Railway > Variables):
 //   Flutterwave  FLW_SECRET_KEY, FLW_WEBHOOK_HASH                       webhook: /api/jjhhf/flw-webhook
@@ -108,15 +110,76 @@ function enabled() {
 }
 const get = name => { const g = ALL[name]; if (!g) throw new BadRequestError("Unknown payment provider."); return g; };
 
-// The member's provider: kept once given; a new one is drawn at random if they have none or theirs has been switched off.
+// How many members each enabled provider has right now.
+function counts(app, list) {
+  const c = {}; list.forEach(g => c[g] = 0);
+  const rows = arrayOf(new DynamicModel({ g: "", n: 0 }));
+  app.db().newQuery("SELECT [[gateway]] AS g, COUNT(*) AS n FROM {{users}} WHERE [[gateway]] != '' GROUP BY [[gateway]]").all(rows);
+  rows.forEach(r => { if (r.g in c) c[r.g] = r.n; });
+  return c;
+}
+// A balanced random draw: one of the providers with the fewest members, chosen at random.
+function draw(app, list) {
+  list = list || enabled();
+  if (!list.length) return "";
+  const c = counts(app, list), min = Math.min(...list.map(g => c[g]));
+  const low = list.filter(g => c[g] === min);
+  return low[Math.floor(Math.random() * low.length)];
+}
+// Gives a member a provider automatically (clears any manual choice). Returns the provider, or "" if none is set up yet.
+function assign(app, uid) {
+  const g = draw(app); if (!g) return "";
+  const u = app.findRecordById("users", uid);
+  u.set("gateway", g); u.set("gateway_manual", false); app.save(u);
+  return g;
+}
+
+// The member's provider: kept once given; a new one is drawn if they have none or theirs has been switched off.
 function pick(app, uid) {
   const list = enabled();
   if (!list.length) throw new BadRequestError("Payments are not set up yet. Please contact customer care.");
   const u = app.findRecordById("users", uid), cur = u.getString("gateway");
   if (cur && list.includes(cur)) return cur;
-  const g = list[Math.floor(Math.random() * list.length)];
-  u.set("gateway", g); app.save(u);
+  const g = draw(app, list);
+  u.set("gateway", g); u.set("gateway_manual", false); app.save(u);
   return g;
 }
 
-module.exports = { NAMES, ALL, enabled, get, pick };
+// Reshuffles members across the enabled providers, evenly and at random.
+//   mode "unassigned": only members with no provider (or one that is switched off), keeping the totals balanced
+//   mode "all":        every member except those an admin set by hand
+// Returns { changed, total }.
+function shuffle(app, mode) {
+  const list = enabled();
+  if (!list.length) throw new BadRequestError("No payment provider is set up yet. Add the provider keys in Railway first.");
+  const known = list.map(g => "'" + g + "'").join(",");          // provider names are fixed strings from ALL, never user input
+  const where = mode === "all" ? "[[role]] != 'admin' AND ([[gateway_manual]] = FALSE OR [[gateway_manual]] IS NULL)"
+    : "[[role]] != 'admin' AND ([[gateway]] = '' OR [[gateway]] IS NULL OR [[gateway]] NOT IN (" + known + "))";
+  const ids = arrayOf(new DynamicModel({ id: "" }));
+  app.db().newQuery("SELECT [[id]] FROM {{users}} WHERE " + where).all(ids);
+  const order = ids.map(r => r.id);
+  for (let i = order.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); const t = order[i]; order[i] = order[j]; order[j] = t; }
+  // start from the current counts of the members NOT being reshuffled, then always hand the next member to the emptiest provider
+  const c = {}; list.forEach(g => c[g] = 0);
+  if (mode !== "all") Object.assign(c, counts(app, list));
+  else {
+    const rows = arrayOf(new DynamicModel({ g: "", n: 0 }));
+    app.db().newQuery("SELECT [[gateway]] AS g, COUNT(*) AS n FROM {{users}} WHERE [[gateway_manual]] = TRUE AND [[gateway]] != '' GROUP BY [[gateway]]").all(rows);
+    rows.forEach(r => { if (r.g in c) c[r.g] = r.n; });
+  }
+  let changed = 0;
+  for (let k = 0; k < order.length; k += 500) {
+    app.runInTransaction((tx) => {
+      order.slice(k, k + 500).forEach(id => {
+        const min = Math.min(...list.map(g => c[g])), low = list.filter(g => c[g] === min);
+        const g = low[Math.floor(Math.random() * low.length)]; c[g]++;
+        const u = tx.findRecordById("users", id);
+        if (u.getString("gateway") !== g) changed++;
+        u.set("gateway", g); u.set("gateway_manual", false); tx.save(u);
+      });
+    });
+  }
+  return { changed, total: order.length, counts: c };
+}
+
+module.exports = { NAMES, ALL, enabled, get, pick, draw, assign, shuffle };

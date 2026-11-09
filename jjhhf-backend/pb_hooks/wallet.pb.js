@@ -126,7 +126,7 @@ routerAdd("GET", "/api/jjhhf/admin/stats", (e) => {
   const dp = one("SELECT COALESCE(SUM(CASE WHEN [[status]] = 'successful' THEN 1 ELSE 0 END), 0) AS ok, COALESCE(SUM(CASE WHEN [[status]] = 'successful' THEN [[amount]] ELSE 0 END), 0) AS total, COALESCE(SUM(CASE WHEN [[status]] = 'pending' THEN 1 ELSE 0 END), 0) AS pending FROM {{deposits}}", { ok: 0, total: -0, pending: 0 });
   const tx = one("SELECT COALESCE(SUM([[amount]]), 0) AS tax FROM {{fees}} WHERE [[status]] = 'confirmed' AND [[type]] = 'tax'", { tax: -0 });
   const byGw = {}; ["flutterwave", "paystack", "monnify"].forEach(g => { const r = one("SELECT COUNT(*) AS n, COALESCE(SUM([[amount]]), 0) AS total FROM {{deposits}} WHERE [[status]] = 'successful' AND [[gateway]] = '" + g + "'", { n: 0, total: -0 }); byGw[g] = { n: r.n, total: r.total }; });
-  const cd = one("SELECT COALESCE(SUM(CASE WHEN [[code_used_at]] != '' THEN 1 ELSE 0 END), 0) AS used, COALESCE(SUM(CASE WHEN [[code]] != '' AND [[code_used_at]] = '' AND [[code_from]] <= {:now} AND [[code_until]] > {:now} THEN 1 ELSE 0 END), 0) AS open FROM {{subscriptions}}".replace(/\{:now\}/g, "'" + new Date().toISOString().replace("T", " ") + "'"), { used: 0, open: 0 });
+  const cd = one("SELECT COALESCE(SUM(CASE WHEN [[code_used_at]] != '' OR [[code_admin]] = 'used' THEN 1 ELSE 0 END), 0) AS used, COALESCE(SUM(CASE WHEN [[code]] != '' AND [[code_used_at]] = '' AND [[code_admin]] = '' AND [[code_from]] <= {:now} AND [[code_until]] > {:now} THEN 1 ELSE 0 END), 0) AS open FROM {{subscriptions}}".replace(/\{:now\}/g, "'" + new Date().toISOString().replace("T", " ") + "'"), { used: 0, open: 0 });
   return e.json(200, {
     users: all.users, members: u.members, registered: u.registered, unregistered: u.members - u.registered, withAccount: u.withAccount, admins: all.users - u.members,
     held: all.held, subscriptions: s.n, activeSubscriptions: s.active, pendingPayments: p.pending, confirmedTotal: p.confirmed, penalties: p.penalties,
@@ -151,3 +151,51 @@ routerAdd("POST", "/api/jjhhf/code/check", (e) => {
   const c = W.codeState($app, (e.requestInfo().body || {}).code);
   return e.json(200, { status: c.status, code: c.code, message: c.message, plan: c.plan || "", from: c.from ? c.from.toISOString() : "", until: c.until ? c.until.toISOString() : "" });
 }, $apis.requireAuth());
+
+// 9) Admin: change a plan code's status. status: "used" | "expired" (marked by the foundation) | "auto" (restore: back to its normal dates).
+//    A code that a member actually used cannot be changed.
+routerAdd("POST", "/api/jjhhf/admin/code-status", (e) => {
+  if (e.auth.getString("role") !== "admin") throw new ForbiddenError("Admins only.");
+  const b = e.requestInfo().body || {}, st = String(b.status || "");
+  if (!["used", "expired", "auto"].includes(st)) throw new BadRequestError("Choose used, expired or restore.");
+  let rec; try { rec = $app.findRecordById("subscriptions", String(b.subscription || "")); } catch (_) { throw new BadRequestError("Plan code not found."); }
+  if (!rec.getString("code")) throw new BadRequestError("This membership has no plan code.");
+  if (rec.getString("code_used_at")) throw new BadRequestError("This code was used by " + (rec.getString("code_used_name") || "a member") + ", so its status cannot be changed.");
+  rec.set("code_admin", st === "auto" ? "" : st);
+  rec.set("code_admin_at", st === "auto" ? "" : new Date().toISOString().replace("T", " "));
+  $app.save(rec);
+  return e.json(200, { ok: true, code: rec.getString("code"), status: st });
+}, $apis.requireAuth());
+
+// 10) Admin: set a member's payment provider by hand, or "" for Automatic (a balanced random draw, see gateways.js).
+routerAdd("POST", "/api/jjhhf/admin/gateway", (e) => {
+  const G = require(`${__hooks}/gateways.js`);
+  if (e.auth.getString("role") !== "admin") throw new ForbiddenError("Admins only.");
+  const b = e.requestInfo().body || {}, g = String(b.gateway || "");
+  let u; try { u = $app.findRecordById("users", String(b.user || "")); } catch (_) { throw new BadRequestError("Member not found."); }
+  if (!g) {
+    const got = G.assign($app, u.id);
+    return e.json(200, { gateway: got, manual: false, message: got ? "" : "No payment provider is set up yet; one will be given automatically once it is." });
+  }
+  if (!G.NAMES[g]) throw new BadRequestError("Unknown payment provider.");
+  u.set("gateway", g); u.set("gateway_manual", true); $app.save(u);
+  return e.json(200, { gateway: g, manual: true, message: G.enabled().includes(g) ? "" : G.NAMES[g] + " is not set up yet, so their next deposit will use another provider until it is." });
+}, $apis.requireAuth());
+
+// 11) Admin: reshuffle payment providers across members, evenly and at random.
+//     mode "unassigned": only members without a (working) provider; mode "all": everyone except members set by hand.
+routerAdd("POST", "/api/jjhhf/admin/gateway/shuffle", (e) => {
+  const G = require(`${__hooks}/gateways.js`);
+  if (e.auth.getString("role") !== "admin") throw new ForbiddenError("Admins only.");
+  const mode = String((e.requestInfo().body || {}).mode || "unassigned") === "all" ? "all" : "unassigned";
+  return e.json(200, G.shuffle($app, mode));
+}, $apis.requireAuth());
+
+// 12) Every 15 minutes: members still without a provider (signed up before any provider was set up, or theirs was switched off)
+//     are given one automatically.
+cronAdd("jjhhf_gateway_assign", "*/15 * * * *", () => {
+  const G = require(`${__hooks}/gateways.js`);
+  if (!G.enabled().length) return;
+  try { const r = G.shuffle($app, "unassigned"); if (r.total) console.log("jjhhf gateway assign: gave a provider to", r.total, "members"); }
+  catch (err) { console.log("jjhhf gateway assign:", String(err)); }
+});

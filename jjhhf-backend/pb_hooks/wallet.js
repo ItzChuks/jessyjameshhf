@@ -128,6 +128,8 @@ function codeState(app, code, now = new Date()) {
   let planName = ""; try { planName = app.findRecordById("plans", rec.getString("plan")).getString("name"); } catch (_) { }
   const base = { rec, code: c, from, until, plan: planName };
   if (rec.getString("code_used_at")) return Object.assign(base, { status: "used", message: "This code has already been used." });
+  if (rec.getString("code_admin") === "used") return Object.assign(base, { status: "used", message: "This code has already been used." });
+  if (rec.getString("code_admin") === "expired") return Object.assign(base, { status: "expired", message: "This code has expired." });
   if (rec.getString("status") === "cancelled") return Object.assign(base, { status: "invalid", message: "This code is no longer valid (its plan was cancelled)." });
   if (now >= until) return Object.assign(base, { status: "expired", message: "This code expired at " + lastDayLagos(until) + "." });
   if (now < from) return Object.assign(base, { status: "not_yet", message: "This code can only be used from " + whenLagos(from) + "." });
@@ -138,7 +140,7 @@ function codeState(app, code, now = new Date()) {
 // that fell due since 1 January (no penalty). All or nothing: if the wallet cannot cover it, nothing is created.
 // An optional plan code (from any member's plan, including one shared by another member) can be given; it must be open
 // (between its start and expiry) and unused, and is then marked as used by this member. Every new membership gets its own code.
-function joinPlan(app, uid, planId, code) {
+function joinPlan(app, uid, planId, code, opts = {}) {
   let plan; try { plan = app.findRecordById("plans", String(planId || "")); } catch (_) { throw new BadRequestError("That plan does not exist."); }
   if (!plan.getBool("active")) throw new BadRequestError("That plan is not open for enrolment.");
   const pl = R.planObj(plan);
@@ -172,13 +174,39 @@ function joinPlan(app, uid, planId, code) {
   app.save(sub);
   if (cs) {                                                      // mark the code as used (the owner and the admin see who used it and when)
     const owner = app.findRecordById("subscriptions", cs.rec.id), me = app.findRecordById("users", uid);
-    if (owner.getString("code_used_at")) throw new BadRequestError("This code has already been used.");
+    if (owner.getString("code_used_at") || owner.getString("code_admin")) throw new BadRequestError("This code can no longer be used.");
     owner.set("code_used_by", uid); owner.set("code_used_name", me.getString("name") || me.getString("email"));
     owner.set("code_used_at", ts(new Date())); owner.set("code_used_sub", sub.id);
     app.save(owner);
   }
-  collect(app, uid);                                             // today's instalment, if the wallet still has enough
+  if (!opts.noCollect) collect(app, uid);                        // today's instalment, if the wallet still has enough
   return { subscription: sub.id, catchup, instalments: c };
+}
+
+// ---- joining the same plan several times at once ----
+// A member may hold up to MAX_SLOTS running (active) memberships of the same plan, and can add several in one go.
+// Each one is a separate membership with its own joining fee, payments, payout and plan code. A plan code entered when
+// joining is used once, on the first of them. All or nothing: if the wallet cannot cover every one, none is created.
+const MAX_SLOTS = 50;
+function joinMany(app, uid, planId, code, qty) {
+  const n = Math.floor(Number(qty || 1));
+  if (!(n >= 1 && n <= MAX_SLOTS)) throw new BadRequestError("You can join a plan 1 to " + MAX_SLOTS + " times at once.");
+  let plan; try { plan = app.findRecordById("plans", String(planId || "")); } catch (_) { throw new BadRequestError("That plan does not exist."); }
+  if (!plan.getBool("active")) throw new BadRequestError("That plan is not open for enrolment.");
+  const have = app.findRecordsByFilter("subscriptions", "user = {:u} && plan = {:p} && status = 'active'", "", 0, 0, { u: uid, p: plan.id }).length;
+  if (have + n > MAX_SLOTS) {
+    const left = Math.max(0, MAX_SLOTS - have);
+    throw new BadRequestError("You already have " + have + " running " + plan.getString("name") + " membership" + (have === 1 ? "" : "s") + ". The limit is " + MAX_SLOTS + " per plan, so you can " + (left ? "add up to " + left + " more." : "not add more until one ends."));
+  }
+  const pl = R.planObj(plan), s = { id: "", created: ts(new Date()) };
+  const c = R.catchupCount(s, pl), first = R.isSeasonal(pl) ? 0 : pl.amount, each = FEES.join + c * pl.amount + first, total = each * n, bal = balanceOf(app, uid);
+  if (n > 1 && bal < total) {
+    throw new BadRequestError("Your wallet needs " + naira(total) + " to join this plan " + n + " times (" + naira(each) + " each: joining fee " + naira(FEES.join) + (first ? " + first payment " + naira(first) : "") + (c ? " + catch-up " + naira(c * pl.amount) : "") + "). You have " + naira(bal) + ". Please deposit " + naira(total - bal) + ".");
+  }
+  const subs = [];
+  for (let i = 0; i < n; i++) subs.push(joinPlan(app, uid, plan.id, i === 0 ? code : "", { noCollect: true }).subscription);
+  collect(app, uid);                                             // today's instalments, if the wallet still has enough
+  return { subscription: subs[0], subscriptions: subs, count: n };
 }
 
 // Runs fn inside a transaction. A BadRequestError thrown inside loses its message on the way out of the transaction, so it is re-thrown here
@@ -191,4 +219,4 @@ function inTx(fn) {
   }
 }
 
-module.exports = { FEES, naira, post, credit, collect, joinPlan, balanceOf, inTx, syncSub, ts, DONE, codeState, normCode };
+module.exports = { FEES, MAX_SLOTS, naira, post, credit, collect, joinPlan, joinMany, balanceOf, inTx, syncSub, ts, DONE, codeState, normCode };
