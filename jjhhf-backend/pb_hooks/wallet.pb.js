@@ -281,3 +281,14 @@ routerAdd("POST", "/api/jjhhf/admin/suspend", (e) => {
   $app.save(u);
   return e.json(200, { suspended: on });
 }, $apis.requireAuth());
+
+// 19) Receipts that were slow to read the first time are read again in the background, every minute (transfers.js).
+cronAdd("jjhhf_receipt_queue", "* * * * *", () => {
+  const T = require(`${__hooks}/transfers.js`);
+  const store = $app.store(), KEY = "jjhhf_receipt_lock", t0 = Date.now(), held = store.get(KEY);
+  if (held && t0 - Number(held) < 5 * 60e3) return;
+  store.set(KEY, t0);
+  try { const n = T.processQueue($app, 45e3); if (n) console.log("jjhhf receipts: finished", n, "in the background"); }
+  catch (err) { console.log("jjhhf receipt queue:", String(err)); }
+  finally { store.remove(KEY); }
+});

@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><link rel="stylesheet" href="tailwind.css?v=20261109i"><script src="theme.js?v=20261109i"></script><script src="https://cdn.jsdelivr.net/npm/pocketbase@0.26.8/dist/pocketbase.umd.js"></script><script src="mock.js?v=20261109i"></script><script src="pdf.js?v=20261109i"></script><script src="app.js?v=20261109i"></script><title>Dashboard – Jessy James Helping Hands Foundation</title></head>
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><link rel="stylesheet" href="tailwind.css?v=20261109k"><script src="theme.js?v=20261109k"></script><script src="https://cdn.jsdelivr.net/npm/pocketbase@0.26.8/dist/pocketbase.umd.js"></script><script src="mock.js?v=20261109k"></script><script src="pdf.js?v=20261109k"></script><script src="app.js?v=20261109k"></script><title>Dashboard – Jessy James Helping Hands Foundation</title></head>
 <body class="bg-slate-50 text-slate-800"><div id="app"></div>
 <script>
 if (guard()) {
@@ -227,6 +227,11 @@ deps: { overview: ['subscriptions', 'payments', 'wallet_txs'], wallet: ['wallet_
   }
   if (c === 'deposits' && e.action === 'update' && e.record.status === 'failed') { toast('Your receipt for ' + naira(e.record.total) + ' was rejected' + (e.record.check_note ? ': ' + e.record.check_note : '.'), 1, 9000); return; }
   if (c === 'deposits' && e.action === 'update' && e.record.status === 'reversed') { toast('A deposit of ' + naira(e.record.amount) + ' was reversed' + (e.record.check_note ? ': ' + e.record.check_note : '.'), 1, 9000); return; }
+  // a receipt read in the background could not be confirmed (one that was credited shows the "added to your wallet" notice instead)
+  if (c === 'deposits' && e.action === 'update' && e.record.status === 'pending' && e.record.verified !== 'queued' && e.record.check?.read !== undefined && e.record.gateway === 'transfer') {
+    const k = 'dq:' + e.record.id; if (!sessionStorage.getItem(k)) { sessionStorage.setItem(k, 1); toast('Receipt for ' + naira(e.record.total) + ': ' + (e.record.check_note || 'waiting for an admin to check it.'), 0, 9000); }
+    return;
+  }
   if (c === 'deposits') return;
   if (c === 'wallet_txs' && e.action === 'create') {
     const r = e.record;

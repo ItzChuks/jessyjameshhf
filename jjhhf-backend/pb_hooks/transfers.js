@@ -82,13 +82,16 @@ function provider() {
 const providerName = () => { const p = provider(); return p ? PROVIDERS[p].name : ""; };
 
 // one request to the chosen provider; returns the model's text answer
-function askAI(p, file) {
+function askAI(p, file, timeout) {
   const P = PROVIDERS[p], key = env(P.key), model = env("RECEIPT_AI_MODEL") || P.model, data = "data:" + file.media + ";base64," + file.data;
   let req, pick;
   if (p === "gemini") {
     req = { url: env("RECEIPT_AI_URL") || "https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(model) + ":generateContent",
       headers: { "content-type": "application/json", "x-goog-api-key": key },
+      // receipts need no deep reasoning: "low" thinking answers much faster (RECEIPT_AI_THINKING to change; "off" leaves the model's default)
       body: { contents: [{ parts: [{ inline_data: { mime_type: file.media, data: file.data } }, { text: PROMPT }] }], generationConfig: { temperature: 0, responseMimeType: "application/json" } } };
+    const lvl = (env("RECEIPT_AI_THINKING") || "low").toLowerCase();
+    if (lvl !== "off") req.body.generationConfig.thinkingConfig = { thinkingLevel: lvl };
     pick = j => (((j.candidates || [])[0] || {}).content || { parts: [] }).parts.map(x => x.text || "").join("");
   } else if (p === "xai" || p === "openai") {
     req = { url: env("RECEIPT_AI_URL") || (p === "xai" ? "https://api.x.ai/v1/chat/completions" : "https://api.openai.com/v1/chat/completions"),
@@ -102,20 +105,31 @@ function askAI(p, file) {
       body: { model, max_tokens: 700, messages: [{ role: "user", content: [block, { type: "text", text: PROMPT }] }] } };
     pick = j => ((j.content || []).map(c => c.text || "").join(""));
   }
-  const r = $http.send({ url: req.url, method: "POST", timeout: 90, headers: req.headers, body: JSON.stringify(req.body) });
-  if (r.statusCode !== 200) { console.log("jjhhf receipt AI (" + p + "):", r.statusCode, toString(r.body).slice(0, 300)); throw new Error(P.name + " is unavailable right now (" + r.statusCode + ")."); }
+  const send = () => $http.send({ url: req.url, method: "POST", timeout: timeout || 25, headers: req.headers, body: JSON.stringify(req.body) });
+  let r = send();
+  if (r.statusCode === 400 && req.body.generationConfig && req.body.generationConfig.thinkingConfig) {   // a model that does not accept that thinking level
+    delete req.body.generationConfig.thinkingConfig; r = send();
+  }
+  if (r.statusCode !== 200) { console.log("jjhhf receipt AI (" + p + "):", r.statusCode, toString(r.body).slice(0, 300)); const e = new Error(P.name + " is unavailable right now (" + r.statusCode + ")."); e.retry = r.statusCode === 429 || r.statusCode >= 500; throw e; }
   return pick(r.json || {});
 }
 
 // Reads the receipt with the chosen AI. Returns { ok: true, data } or { ok: false, error }.
-function readReceipt(app, rec) {
+function readReceipt(app, rec, timeout) {
   const p = provider();
   if (!p) return { ok: false, error: "Automatic receipt reading is not set up." };
   let file; try { file = receiptData(app, rec); } catch (err) { return { ok: false, error: "Could not open the receipt file." }; }
   if (file.media === "application/pdf" && !PROVIDERS[p].pdf) return { ok: false, error: PROVIDERS[p].name + " cannot read PDF receipts; an admin will check it." };
   if (p === "xai" && !/^image\/(jpeg|png)$/.test(file.media)) return { ok: false, error: "Grok reads only JPG and PNG receipts; an admin will check it." };
   let text;
-  try { text = askAI(p, file); } catch (err) { return { ok: false, error: String((err && err.message) || err).replace(/^Error:\s*/, "") }; }
+  try { text = askAI(p, file, timeout); }
+  catch (err) {
+    const msg = String((err && err.message) || err);
+    // slow or busy (timeout, rate limit, server error): try again in the background instead of keeping the member waiting
+    const retry = !!(err && err.retry) || /deadline|timeout|timed out|EOF|connection|reset|refused/i.test(msg);
+    const plain = /deadline|timeout|timed out/i.test(msg) ? PROVIDERS[p].name + " took too long to answer." : /EOF|connection|reset|refused/i.test(msg) ? PROVIDERS[p].name + " could not be reached." : msg.replace(/^[\s\S]*?Error:\s*/, "");
+    return { ok: false, retry, error: plain };
+  }
   const m = String(text || "").match(/\{[\s\S]*\}/);
   try { return { ok: true, data: JSON.parse(m ? m[0] : text) }; } catch (_) { return { ok: false, error: "The receipt could not be read clearly." }; }
 }
@@ -204,7 +218,20 @@ function submit(app, uid, amount, file, senderName) {
   try { const f = receiptData(app, d); hash = $security.sha256(f.data); } catch (_) { }
   d.set("receipt_hash", hash);
 
-  const read = readReceipt(app, d);
+  const read = readReceipt(app, d, 25);
+  if (!read.ok && read.retry) {                                   // finished in the background (cron below); the member is told live
+    d.set("verified", "queued"); d.set("check", { read: false, queued: true, tries: 1, error: read.error });
+    d.set("check_note", "Your receipt is being checked. You will be notified in a minute or two.");
+    app.save(d);
+    return { status: "pending", queued: true, id: d.id, message: "Receipt received. We are checking it now and will notify you in a minute or two; you can leave this page." };
+  }
+  return decide(app, d, read, S);
+}
+
+// Applies the result of reading a receipt: credits it when every check passes (and automatic approval allows it), otherwise leaves it for an admin.
+function decide(app, d, read, S) {
+  const amount = d.getFloat("amount");
+  d.set("verified", "");
   if (!read.ok) {
     d.set("check", { read: false, error: read.error }); d.set("check_note", "Waiting for an admin to check your receipt.");
     app.save(d);
@@ -226,6 +253,25 @@ function submit(app, uid, amount, file, senderName) {
   return { status: "pending", id: d.id, message: ev.pass ? "Receipt received. An admin will check it and credit your wallet." : "We could not confirm this receipt automatically: " + ev.reasons.join(" ") + " An admin will check it." };
 }
 
+// Background reading of receipts that were slow the first time (called every minute by wallet.pb.js). Gives up after 5 tries
+// (the receipt then simply waits for an admin). An admin approving or rejecting it meanwhile takes it out of the queue.
+function processQueue(app, budgetMs) {
+  const t0 = Date.now(), S = settingsObj(app);
+  const list = app.findRecordsByFilter("deposits", "status = 'pending' && verified = 'queued'", "created", 20, 0);
+  let n = 0;
+  for (const d of list) {
+    if (Date.now() - t0 > budgetMs) break;
+    const c = d.get("check") || {}, tries = (Number(c.tries) || 0) + 1;
+    const read = readReceipt(app, d, 40);
+    const x = app.findRecordById("deposits", d.id);
+    if (x.getString("status") !== "pending" || x.getString("verified") !== "queued") continue;   // an admin dealt with it meanwhile
+    if (!read.ok && read.retry && tries < 5) { x.set("check", { read: false, queued: true, tries, error: read.error }); app.save(x); continue; }
+    decide(app, x, read.ok || !read.retry ? read : { ok: false, error: "Could not be read automatically (" + read.error + ")." }, S);
+    n++;
+  }
+  return n;
+}
+
 // Admin actions on a transfer deposit: approve | reject | confirm | reverse
 function review(app, adminId, depId, action, note) {
   note = String(note || "").trim().slice(0, 300);
@@ -240,8 +286,12 @@ function review(app, adminId, depId, action, note) {
       out = { status: "successful" };
     } else if (action === "reject") {
       if (st !== "pending") throw new BadRequestError("Only a waiting receipt can be rejected. To take back money already credited, use Reverse.");
-      stamp(); d.set("status", "failed"); d.set("check_note", note || "Rejected: payment not received."); tx.save(d);
+      stamp(); d.set("status", "failed"); d.set("verified", ""); d.set("check_note", note || "Rejected: payment not received."); tx.save(d);
       out = { status: "failed" };
+    } else if (action === "reread") {
+      if (st !== "pending" || !d.getString("receipt")) throw new BadRequestError("Only a waiting receipt can be read again.");
+      d.set("verified", "queued"); d.set("check", { read: false, queued: true, tries: 0 }); d.set("check_note", "Your receipt is being checked again."); tx.save(d);
+      out = { status: "pending", queued: true };
     } else if (action === "confirm") {
       if (st !== "successful") throw new BadRequestError("Only a credited deposit can be confirmed.");
       stamp(); d.set("verified", "admin"); if (note) d.set("check_note", note); tx.save(d);
@@ -257,4 +307,4 @@ function review(app, adminId, depId, action, note) {
   return out;
 }
 
-module.exports = { TAX, MIN, MAX, settingsObj, submit, review, accountMatches, evaluate, b64, providerName };
+module.exports = { TAX, MIN, MAX, settingsObj, submit, review, processQueue, accountMatches, evaluate, b64, providerName };

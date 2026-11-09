@@ -327,6 +327,7 @@ async function transferBox(amount = '') {
         const f = new FormData(); f.append('amount', String(amt)); f.append('sender_name', d.sender_name || ''); f.append('receipt', await shrinkImage(d.receipt));
         const r = await pb.send('/api/jjhhf/transfer', { method: 'POST', body: f });
         if (r.status === 'successful') toast(r.message, 0, 7000);
+        else if (r.queued) toast(r.message, 0, 9000);
         else setTimeout(() => confirmBox({ title: 'Receipt received', message: r.message, confirmText: 'OK', cancelText: 'Close' }), 50);
       } catch (x) { if (sub) { sub.disabled = false; sub.textContent = 'Submit receipt'; } throw x; }
     }, 'Submit receipt');
