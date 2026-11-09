@@ -263,7 +263,8 @@ routerAdd("POST", "/api/jjhhf/admin/import-plan", (e) => {
   if (e.auth.getString("role") !== "admin") throw new ForbiddenError("Admins only.");
   const b = e.requestInfo().body || {};
   let out = {};
-  W.inTx((tx) => { out = W.importPlan(tx, String(b.user || ""), b.plan, b.days, b.amount_paid, b.note); });
+  // b.items = [{ plan, days, amount_paid, count, note }] adds several at once; the single-plan form (plan, days, amount_paid) still works
+  W.inTx((tx) => { out = Array.isArray(b.items) ? W.importMany(tx, String(b.user || ""), b.items, b.note) : W.importPlan(tx, String(b.user || ""), b.plan, b.days, b.amount_paid, b.note); });
   return e.json(200, out);
 }, $apis.requireAuth());
 

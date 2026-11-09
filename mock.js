@@ -153,13 +153,19 @@ function createMockPB() {
     }
     if (path.endsWith('/admin/import-plan')) {
       if (me.role !== 'admin') throw new Error('Admins only.');
-      const pl = db.plans.find(p => p.id === b.plan), days = Math.floor(+b.days || 0), paid = Math.round(+b.amount_paid || 0), k = paid / pl.amount;
-      if (!Number.isInteger(k) || k < 0) throw new Error('Amount paid must be a multiple of the contribution, ' + n(pl.amount) + '.');
-      const L = new Date(Date.now() + 36e5), start = new Date(Date.UTC(L.getUTCFullYear(), L.getUTCMonth(), L.getUTCDate() - days, 8) - 36e5);
-      const s = { id: uid(), created: start.toISOString().replace('T', ' '), user: b.user, plan: pl.id, status: 'active', imported: true, import_note: b.note || 'Brought over from manual records' }; giveCode(s, pl);
-      db.subscriptions.push(s); emit('subscriptions', 'create', s);
-      if (k) { const p = { id: uid(), created: now(), user: b.user, subscription: s.id, amount: paid, penalty: 0, installments: k, late_count: 0, note: 'Brought over from manual records · ' + k + ' payments', status: 'confirmed' }; db.payments.push(p); emit('payments', 'create', p); }
-      const before = db.payments.length; collect(b.user); save(); return { subscription: s.id, paid: k, payments: sched(s, pl).n, collected: db.payments.length - before };
+      const items = Array.isArray(b.items) ? b.items : [{ plan: b.plan, days: b.days, amount_paid: b.amount_paid, count: 1 }];
+      let added = 0; const ids = [];
+      items.forEach((it, i) => {
+        const pl = db.plans.find(p => p.id === it.plan), days = Math.floor(+it.days || 0), paid = Math.round(+it.amount_paid || 0), k = paid / pl.amount;
+        if (!Number.isInteger(k) || k < 0) throw new Error('Row ' + (i + 1) + ': amount paid must be a multiple of the contribution, ' + n(pl.amount) + '.');
+        const L = new Date(Date.now() + 36e5), start = new Date(Date.UTC(L.getUTCFullYear(), L.getUTCMonth(), L.getUTCDate() - days, 8) - 36e5);
+        for (let c = 0; c < Math.max(1, Math.floor(+it.count || 1)); c++) {
+          const s = { id: uid(), created: start.toISOString().replace('T', ' '), user: b.user, plan: pl.id, status: 'active', imported: true, import_note: it.note || b.note || 'Brought over from manual records' }; giveCode(s, pl);
+          db.subscriptions.push(s); emit('subscriptions', 'create', s); ids.push(s.id); added++;
+          if (k) { const p = { id: uid(), created: now(), user: b.user, subscription: s.id, amount: paid, penalty: 0, installments: k, late_count: 0, note: 'Brought over from manual records · ' + k + ' payments', status: 'confirmed' }; db.payments.push(p); emit('payments', 'create', p); }
+        }
+      });
+      const before = db.payments.length; collect(b.user); save(); return { added, subscriptions: ids, subscription: ids[0], collected: db.payments.length - before };
     }
     if (path.endsWith('/admin/code-status')) {
       if (me.role !== 'admin') throw new Error('Admins only.');

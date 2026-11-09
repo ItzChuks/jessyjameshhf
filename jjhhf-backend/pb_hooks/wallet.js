@@ -221,7 +221,7 @@ function joinMany(app, uid, planId, code, qty, codes) {
 // contributions). No joining fee is taken and the wallet is not touched for what was paid before. From then on the plan runs exactly
 // like any other: the next payments are collected from the wallet automatically. Payments that are already due but not covered by
 // amountPaid are collected at once if the wallet can pay them (late ones with the usual penalty).
-function importPlan(app, uid, planId, days, amountPaid, note) {
+function importPlan(app, uid, planId, days, amountPaid, note, opts = {}) {
   let plan; try { plan = app.findRecordById("plans", String(planId || "")); } catch (_) { throw new BadRequestError("That plan does not exist."); }
   try { app.findRecordById("users", String(uid || "")); } catch (_) { throw new BadRequestError("Member not found."); }
   const pl = R.planObj(plan);
@@ -253,8 +253,39 @@ function importPlan(app, uid, planId, days, amountPaid, note) {
   rec.set("paid_count", k); rec.set("next_collect", nextCollect(s, pl, k));
   app.save(rec);
   const before = R.stateFromPaid(s, pl, k, new Date());
-  const took = collect(app, uid);
+  const took = opts.noCollect ? 0 : collect(app, uid);
   return { subscription: rec.id, paid: k, payments: n, dueNow: before.overdue, collected: took };
+}
+
+// Several at once: items = [{ plan, days, amount_paid, count (how many of that same plan, default 1), note }].
+// All or nothing (run inside a transaction). Respects the limit of MAX_SLOTS running memberships per plan.
+function importMany(app, uid, items, note) {
+  if (!Array.isArray(items) || !items.length) throw new BadRequestError("Add at least one plan.");
+  const total = items.reduce((a, it) => a + Math.max(0, Math.floor(Number(it.count || 1))), 0);
+  if (total < 1) throw new BadRequestError("Add at least one plan.");
+  if (total > 500) throw new BadRequestError("Add at most 500 memberships at once.");
+  const perPlan = {};
+  items.forEach((it, i) => {
+    const c = Math.floor(Number(it.count || 1));
+    if (!(c >= 1 && c <= MAX_SLOTS)) throw new BadRequestError("Row " + (i + 1) + ": how many times must be 1 to " + MAX_SLOTS + ".");
+    perPlan[it.plan] = (perPlan[it.plan] || 0) + c;
+  });
+  Object.keys(perPlan).forEach(pid => {
+    let plan; try { plan = app.findRecordById("plans", String(pid || "")); } catch (_) { throw new BadRequestError("One of the plans does not exist."); }
+    const have = app.findRecordsByFilter("subscriptions", "user = {:u} && plan = {:p} && status = 'active'", "", 0, 0, { u: uid, p: plan.id }).length;
+    if (have + perPlan[pid] > MAX_SLOTS) throw new BadRequestError(plan.getString("name") + ": the member already has " + have + " running, and the limit is " + MAX_SLOTS + " per plan (you are adding " + perPlan[pid] + ").");
+  });
+  const out = { added: 0, paid: 0, subscriptions: [] };
+  items.forEach((it, i) => {
+    for (let k = 0; k < Math.floor(Number(it.count || 1)); k++) {
+      let r;
+      try { r = importPlan(app, uid, it.plan, it.days, it.amount_paid, it.note || note, { noCollect: true }); }
+      catch (err) { const m = String((err && err.message) || err).replace(/^[\s\S]*?BadRequestError:\s*/, ""); throw new BadRequestError("Row " + (i + 1) + ": " + m); }
+      out.added++; out.paid += r.paid; out.subscriptions.push(r.subscription);
+    }
+  });
+  out.collected = collect(app, uid);                              // payments already due, if the wallet can pay them
+  return out;
 }
 
 // Runs fn inside a transaction. A BadRequestError thrown inside loses its message on the way out of the transaction, so it is re-thrown here
@@ -267,4 +298,4 @@ function inTx(fn) {
   }
 }
 
-module.exports = { FEES, MAX_SLOTS, naira, post, credit, collect, joinPlan, joinMany, importPlan, balanceOf, inTx, syncSub, ts, DONE, codeState, normCode };
+module.exports = { FEES, MAX_SLOTS, naira, post, credit, collect, joinPlan, joinMany, importPlan, importMany, balanceOf, inTx, syncSub, ts, DONE, codeState, normCode };

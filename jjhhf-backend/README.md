@@ -71,8 +71,9 @@ Online payment partners (Flutterwave, Paystack, Monnify) are **paused**. Members
 To bring the online partners back later, set `ONLINE_PAYMENTS=on` (their code is still in gateways.js / deposits.js).
 
 ## Admin tools added
-- **Add existing plan** (member page): for members who were saving manually. Choose the plan, how long it has been running and
-  the amount already paid; no joining fee is taken and the plan carries on automatically. Payments already due and unpaid are
+- **Add existing plans** (member page): for members who were saving manually. One row per plan (add as many rows as needed, and
+  "How many times" for the same plan held several times): how long it has been running and the amount already paid. All rows are
+  saved together or not at all; no joining fee is taken and the plan carries on automatically. Payments already due and unpaid are
   collected from the wallet straight away (late ones with the usual penalty), as the preview warns.
 - **Suspend / Restore account** (member page): a suspended member cannot sign in or use the site and sees the reason.
   Their plans keep running.

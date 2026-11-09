@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><link rel="stylesheet" href="tailwind.css?v=20261109g"><script src="theme.js?v=20261109g"></script><script src="https://cdn.jsdelivr.net/npm/pocketbase@0.26.8/dist/pocketbase.umd.js"></script><script src="mock.js?v=20261109g"></script><script src="pdf.js?v=20261109g"></script><script src="app.js?v=20261109g"></script><title>Admin – Jessy James Helping Hands Foundation</title></head>
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><link rel="stylesheet" href="tailwind.css?v=20261109h"><script src="theme.js?v=20261109h"></script><script src="https://cdn.jsdelivr.net/npm/pocketbase@0.26.8/dist/pocketbase.umd.js"></script><script src="mock.js?v=20261109h"></script><script src="pdf.js?v=20261109h"></script><script src="app.js?v=20261109h"></script><title>Admin – Jessy James Helping Hands Foundation</title></head>
 <body class="bg-slate-50 text-slate-800"><div id="app"></div>
 <script>
 if(guard('admin')){
@@ -41,23 +41,38 @@ window.suspendUser=async(id,on)=>{const u=await col('users').getOne(id);
 // amount is recorded (no joining fee, wallet untouched), and from then on it carries on automatically like any other plan.
 window.importPlan=async uid=>{const [u,plans]=await Promise.all([col('users').getOne(uid),col('plans').getFullList({sort:'category,frequency,amount'})]);
  if(!plans.length)return toast('Create a plan first (Plans > Add plan).',1);
- window._ipl=Object.fromEntries(plans.map(p=>[p.id,p]));
- modal('Add existing plan for '+esc(u.name||u.email),'<p class="text-sm text-slate-600">For members who were saving with you before the website. The plan continues automatically from where it is: the next payments are taken from their wallet.</p>'
-  +'<label class="block text-sm"><span class="text-slate-600">Plan</span><select name="plan" required class="'+inp+' mt-1">'+plans.map(p=>'<option value="'+p.id+'">'+esc(p.name)+' · '+naira(p.amount)+' '+p.frequency+(p.active?'':' (hidden)')+'</option>').join('')+'</select></label>'
-  +'<div class="text-sm"><span class="text-slate-600">It has been running for</span><div class="flex gap-2 mt-1"><input name="n" type="number" min="0" step="1" value="0" required class="'+inp+'"><select name="unit" class="'+inp+'"><option value="7">weeks</option><option value="1">days</option></select></div><p class="text-xs text-slate-500 mt-1">0 = it starts today. Example: started 3 weeks ago = 3 weeks.</p></div>'
-  +'<label class="block text-sm"><span class="text-slate-600">Amount already paid (₦)</span><input name="amount_paid" type="number" min="0" step="1" value="0" required class="'+inp+' mt-1"></label>'
-  +'<label class="block text-sm"><span class="text-slate-600">Note (optional)</span><input name="note" placeholder="e.g. From the paper ledger" class="'+inp+' mt-1"></label><div id="ipv" class="text-sm rounded-lg border bg-slate-50 p-3"></div>',
-  async d=>{const days=(+d.n||0)*(+d.unit||7);const r=await pb.send('/api/jjhhf/admin/import-plan',{method:'POST',body:{user:uid,plan:d.plan,days,amount_paid:+d.amount_paid||0,note:d.note}});
-   toast('Plan added: '+r.paid+' of '+r.payments+' payments recorded.'+(r.collected?' '+r.collected+' payment'+(r.collected===1?' was':'s were')+' due and taken from the wallet.':''),0,7000)},'Add plan');
- const M=document.querySelector('[data-ui="modal"]'),g=n=>M.querySelector('[name="'+n+'"]');
- const paint=()=>{const pl=window._ipl[g('plan').value],days=(+g('n').value||0)*(+g('unit').value||7),paid=+g('amount_paid').value||0;
-  const L=new Date(Date.now()+36e5),start=new Date(Date.UTC(L.getUTCFullYear(),L.getUTCMonth(),L.getUTCDate()-days,8)-36e5),sub={created:start.toISOString()},S=sched(sub,pl),now=new Date();
-  let due=0;while(due<S.n&&S.due(due)<=new Date(Date.UTC(L.getUTCFullYear(),L.getUTCMonth(),L.getUTCDate(),23,59)-36e5))due++;
-  const k=paid/pl.amount,ok=paid>=0&&Number.isInteger(k)&&k<=S.n,late=Math.max(0,due-k);
-  let late2=0;while(late2<S.n-k&&S.due(k+late2)<=now)late2++;
-  $('#ipv').innerHTML=!ok?'<span class="text-red-600">Amount paid must be a multiple of '+naira(pl.amount)+', up to '+naira(pl.amount*S.n)+' ('+S.n+' payments).</span>'
-   :'Started <b>'+fmtDay(start)+'</b> (day '+(days+1)+'). <b>'+k+' of '+S.n+'</b> payments recorded ('+naira(paid)+').<br>'+(due>k?'<span class="text-amber-800">'+late+' payment'+(late===1?' is':'s are')+' due by today and not paid'+(late2?'; '+late2+' of them '+(late2===1?'is':'are')+' late and will cost double':'')+'. They are taken from the wallet now if it has enough ('+naira(u.wallet_balance)+'), otherwise as soon as they deposit.</span>':k>=S.n?'Fully paid. Payouts open '+fmtDay(termEnd(sub,pl))+'.':'Next payment: <b>'+fmtDay(collectAt(sub,pl,k))+'</b>, then every '+(pl.frequency==='daily'?'day':'7 days')+'.')};
- ['plan','n','unit','amount_paid'].forEach(n=>g(n).oninput=g(n).onchange=paint);paint()};
+ const P=Object.fromEntries(plans.map(p=>[p.id,p]));
+ const opts=plans.map(p=>'<option value="'+p.id+'">'+esc(p.name)+' · '+naira(p.amount)+' '+p.frequency+(p.active?'':' (hidden)')+'</option>').join('');
+ const rowHTML=()=>'<div data-row class="rounded-lg border p-3"><div class="flex items-center gap-2"><select data-f="plan" class="'+inp+'">'+opts+'</select><button type="button" data-del title="Remove this row" class="w-10 h-10 shrink-0 rounded-lg border bg-white text-slate-500 hover:bg-slate-100">✕</button></div>'
+  +'<div class="grid grid-cols-2 gap-2 mt-2 text-sm"><label class="block col-span-2"><span class="text-slate-600">Running for</span><div class="flex gap-1 mt-1"><input data-f="n" type="number" min="0" step="1" value="0" class="'+inp+'"><select data-f="unit" class="'+inp+'"><option value="7">weeks</option><option value="1">days</option></select></div></label>'
+  +'<label class="block"><span class="text-slate-600">Amount paid (₦)</span><input data-f="paid" type="number" min="0" step="1" value="0" class="'+inp+' mt-1"></label><label class="block"><span class="text-slate-600">How many times</span><input data-f="count" type="number" min="1" max="50" step="1" value="1" class="'+inp+' mt-1"></label></div><p data-pv class="text-xs mt-2"></p></div>';
+ modal('Add existing plans for '+esc(u.name||u.email),'<p class="text-sm text-slate-600">For members who were saving with you before the website. Add one row per plan; use <b>How many times</b> when they hold the same plan several times with the same progress. Each plan continues automatically from where it is.</p>'
+  +'<div id="iprows" class="flex flex-col gap-3">'+rowHTML()+'</div><button type="button" id="ipadd" class="'+btn2+' w-full">+ Add another plan</button>'
+  +'<label class="block text-sm"><span class="text-slate-600">Note (optional, saved on every plan added)</span><input name="note" placeholder="e.g. From the paper ledger" class="'+inp+' mt-1"></label><div id="ipv" class="text-sm rounded-lg border bg-slate-50 p-3"></div>',
+  async d=>{const rows=read();if(rows.some(r=>!r.ok))throw new Error('Fix the rows marked in red first.');
+   const r=await pb.send('/api/jjhhf/admin/import-plan',{method:'POST',body:{user:uid,note:d.note,items:rows.map(r=>({plan:r.pl.id,days:r.days,amount_paid:r.paid,count:r.count}))}});
+   toast(r.added+' plan'+(r.added===1?'':'s')+' added for '+(u.name||u.email)+'.'+(r.collected?' '+r.collected+' payment'+(r.collected===1?' was':'s were')+' due and taken from the wallet.':''),0,7000)},'Add plans');
+ const M=document.querySelector('[data-ui="modal"]');M.querySelector('form').classList.replace('max-w-md','max-w-2xl');
+ // what a row means: start date, payments recorded, next payment, and any payments already due but not paid
+ const rowInfo=(pl,days,paid)=>{const L=new Date(Date.now()+36e5),start=new Date(Date.UTC(L.getUTCFullYear(),L.getUTCMonth(),L.getUTCDate()-days,8)-36e5),sub={created:start.toISOString()},S=sched(sub,pl),now=new Date();
+  const endToday=new Date(Date.UTC(L.getUTCFullYear(),L.getUTCMonth(),L.getUTCDate(),23,59)-36e5);let due=0;while(due<S.n&&S.due(due)<=endToday)due++;
+  const k=paid/pl.amount,ok=paid>=0&&Number.isInteger(k)&&k<=S.n;if(!ok)return{ok,late:0,txt:'<span class="text-red-600">Amount paid must be a multiple of '+naira(pl.amount)+', up to '+naira(pl.amount*S.n)+' ('+S.n+' payments).</span>'};
+  let late=0;while(late<S.n-k&&S.due(k+late)<=now)late++;const owed=Math.max(0,due-k);
+  return{ok,late,owed,txt:'Started '+fmtDay(start)+' (day '+(days+1)+') · <b>'+k+' of '+S.n+'</b> paid · '+(owed?'<span class="text-amber-800">'+owed+' due and unpaid'+(late?', '+late+' late (double)':'')+'</span>':k>=S.n?'fully paid, payouts open '+fmtDay(termEnd(sub,pl)):'next payment '+fmtDay(collectAt(sub,pl,k)))}};
+ const read=()=>[...M.querySelectorAll('[data-row]')].map(el=>{const g=f=>el.querySelector('[data-f="'+f+'"]'),pl=P[g('plan').value],days=(+g('n').value||0)*(+g('unit').value||7),paid=+g('paid').value||0,count=Math.floor(+g('count').value||0),info=rowInfo(pl,days,paid);
+  const okc=count>=1&&count<=50;return{el,pl,days,paid,count,info,ok:info.ok&&okc,cerr:!okc}});
+ const paint=()=>{const rows=read();let n=0,amt=0,owed=0,late=0,bad=0;
+  rows.forEach(r=>{r.el.querySelector('[data-pv]').innerHTML=r.cerr?'<span class="text-red-600">How many times must be 1 to 50.</span>':(r.count>1?'<b>× '+r.count+'</b> · ':'')+r.info.txt;r.el.classList.toggle('border-red-200',!r.ok);r.el.classList.toggle('bg-red-50',!r.ok);
+   if(!r.ok){bad++;return}n+=r.count;amt+=r.paid*r.count;owed+=(r.info.owed||0)*r.count;late+=(r.info.late||0)*r.count});
+  M.querySelectorAll('[data-del]').forEach(b=>b.classList.toggle('hidden',rows.length===1));
+  $('#ipv').innerHTML=bad?'<span class="text-red-600">'+bad+' row'+(bad===1?' needs':'s need')+' fixing.</span>':'<b>'+n+' plan'+(n===1?'':'s')+'</b> will be added, with <b>'+naira(amt)+'</b> recorded as already paid (no joining fees, wallet not touched).'+(owed?'<br><span class="text-amber-800">'+owed+' payment'+(owed===1?' is':'s are')+' due and unpaid'+(late?' ('+late+' late, costing double)':'')+'. They are taken from the wallet now if it has enough ('+naira(u.wallet_balance)+'), otherwise as soon as the member deposits.</span>':'');
+  const b=M.querySelector('button:not([type])');if(b)b.textContent=n>1?'Add '+n+' plans':'Add plan'};
+ const rowsEl=$('#iprows');
+ rowsEl.addEventListener('input',paint);rowsEl.addEventListener('change',paint);
+ rowsEl.addEventListener('click',e=>{const d=e.target.closest('[data-del]');if(d&&rowsEl.children.length>1){d.closest('[data-row]').remove();paint()}});
+ $('#ipadd').onclick=()=>{const last=rowsEl.lastElementChild;rowsEl.insertAdjacentHTML('beforeend',rowHTML());const nw=rowsEl.lastElementChild;
+  ['plan','n','unit','paid'].forEach(f=>nw.querySelector('[data-f="'+f+'"]').value=last.querySelector('[data-f="'+f+'"]').value);paint();nw.querySelector('[data-f="plan"]').focus()};   // a new row starts as a copy of the last one
+ paint()};
 // ===== receipts (bank transfers) =====
 const CHK=[['amount','Amount'],['account','Our account'],['date','Date'],['unique','Not used before'],['receipt','Successful receipt'],['edited','Not edited']];
 const chkCell=d=>{const c=d.check||{};if(!d.receipt)return '<span class="text-xs text-slate-400">—</span>';if(!c.read)return '<span class="text-xs text-slate-500">Not read'+(c.error?': '+esc(c.error):'')+'</span>';const k=c.checks||{},bad=CHK.filter(x=>k[x[0]]===false);return bad.length?'<span class="text-xs text-red-600 font-medium">'+bad.map(x=>'✗ '+x[1]).join('<br>')+'</span>':'<span class="text-xs text-emerald-800 font-medium">✓ All checks passed</span>'};
@@ -219,7 +234,7 @@ layout({brand:BRAND_SHORT,sub:'Admin panel',search:{placeholder:'Search members 
    <div class="bg-white border rounded-xl p-5 sm:p-6 mb-6">
     <div class="flex flex-wrap items-center gap-4"><div class="w-14 h-14 rounded-full bg-emerald-800 text-white grid place-items-center text-xl font-semibold shrink-0">${esc((u.name||u.email||'?').trim()[0].toUpperCase())}</div>
      <div class="min-w-0 flex-1"><h2 class="text-xl font-semibold text-slate-900 break-words">${nm(u)}</h2><p class="text-sm text-slate-500 break-words">${esc(u.email)}</p></div>
-     <div class="flex flex-wrap gap-1">${ab('Credit wallet',call('creditWallet',u.id),'bg-emerald-600 text-white')}${u.role==='admin'?'':ab('Add existing plan',call('importPlan',u.id),'border font-medium')}${regBtn(u)}${u.role==='admin'?'':u.suspended?ab('Restore account',call('suspendUser',u.id,'0'),'bg-emerald-600 text-white'):ab('Suspend',call('suspendUser',u.id,'1'),'border text-red-600')}${ab(u.role==='admin'?'Make user':'Make admin',call('setRec','users',u.id,'role',u.role==='admin'?'user':'admin'))}</div></div>
+     <div class="flex flex-wrap gap-1">${ab('Credit wallet',call('creditWallet',u.id),'bg-emerald-600 text-white')}${u.role==='admin'?'':ab('Add existing plans',call('importPlan',u.id),'border font-medium')}${regBtn(u)}${u.role==='admin'?'':u.suspended?ab('Restore account',call('suspendUser',u.id,'0'),'bg-emerald-600 text-white'):ab('Suspend',call('suspendUser',u.id,'1'),'border text-red-600')}${ab(u.role==='admin'?'Make user':'Make admin',call('setRec','users',u.id,'role',u.role==='admin'?'user':'admin'))}</div></div>
     <div class="grid sm:grid-cols-2 sm:gap-x-10 mt-4 border-t">
      <dl class="divide-y">${kv('Phone',u.phone?`<a href="tel:${esc(u.phone)}" class="text-emerald-800 hover:underline">${esc(u.phone)}</a>`:'')}${kv('Country',esc(u.country))}${kv('Email',esc(u.email))}${kv('Address',esc(u.address))}</dl>
      <dl class="divide-y border-t sm:border-t-0">${kv('Role',u.role==='admin'?'Administrator':'Member')}${kv('Registration',u.role==='admin'?'':regBadge(u)+(u.shirt_paid&&u.shirt_paid_at?' <span class="text-xs font-normal text-slate-500">since '+date(u.shirt_paid_at)+'</span>':''))}${kv('Joined',date(u.created))}${kv('Account ID',esc(u.id))}</dl></div></div>
