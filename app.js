@@ -340,6 +340,7 @@ window.depositBox = (amount = '') => transferBox(amount);
 window.transferBox = transferBox;
 // where a transfer deposit stands, for members and admins
 const depBadge = d => {
+  if (d.gateway && d.gateway !== 'transfer' && (d.status === 'pending' || d.status === 'failed')) return '<span class="inline-flex px-2 py-0.5 rounded-md text-xs font-medium ring-1 ring-inset bg-slate-50 text-slate-600 ring-slate-200">Not completed</span>';
   const c = { pending: ['Being checked', 'bg-amber-50 text-amber-800 ring-amber-200'], successful: d.verified === 'auto' ? ['Credited', 'bg-emerald-50 text-emerald-800 ring-emerald-200'] : ['Credited', 'bg-emerald-50 text-emerald-800 ring-emerald-200'], failed: ['Rejected', 'bg-red-50 text-red-700 ring-red-200'], reversed: ['Reversed', 'bg-red-50 text-red-700 ring-red-200'] }[d.status] || [d.status, 'bg-slate-50 text-slate-600 ring-slate-200'];
   return `<span class="inline-flex px-2 py-0.5 rounded-md text-xs font-medium ring-1 ring-inset ${c[1]}">${c[0]}</span>`;
 };
@@ -573,7 +574,7 @@ function layout({ brand, sub = 'Helping Hands Foundation', nav, views, alias = {
     if (!$('#ov').classList.contains('hidden')) tog();
     const m = $('#main'); if (!same) m.innerHTML = '<p class="text-sm text-slate-400">Loading…</p>';
     try { await views[v](m, new URLSearchParams(qs)); if (same) scrollTo(0, y); } catch (e) { m.innerHTML = `<p class="text-red-600 text-sm">${esc(e.message)}</p>`; }
-    updBadges(); updChip();
+    seenMark(navId); updBadges(); updChip();
   };
   const updChip = async () => { if (!chip) return; try { const t = await chip(); const el = $('#wbal'); if (el) el.textContent = t; } catch (e) { /* the balance chip is a convenience */ } };
 
@@ -610,6 +611,14 @@ function layout({ brand, sub = 'Helping Hands Foundation', nav, views, alias = {
 
   addEventListener('hashchange', go); go();
 }
+
+// ===== "new since you last looked" counters =====
+// Each page remembers when this browser last opened it; the counter beside it shows what is new since then (first visit: nothing).
+const seenKey = id => 'jj_seen:' + (pb.authStore.record?.id || '') + ':' + id;
+const seenAt = id => { try { let v = localStorage.getItem(seenKey(id)); if (!v) { v = new Date().toISOString(); localStorage.setItem(seenKey(id), v); } return v.replace('T', ' '); } catch (_) { return new Date().toISOString().replace('T', ' '); } };
+function seenMark(id) { try { localStorage.setItem(seenKey(id), new Date().toISOString()); } catch (_) { } }
+// number of records matching a filter (0 if the request fails: counters must never break a page)
+const countOf = (c, filter) => pb.collection(c).getList(1, 1, { filter, fields: 'id' }).then(r => r.totalItems).catch(() => 0);
 
 // ===== transaction history: payments + payouts in one list, date filters, PDF invoices and statements =====
 const CO = { name: BRAND, phone: SUPPORT_PHONE + ' / ' + SUPPORT_PHONE_2, email: SUPPORT_EMAIL, tagline: TAGLINE, rc: RC_NUMBER };

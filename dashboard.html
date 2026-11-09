@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><link rel="stylesheet" href="tailwind.css?v=20261109f"><script src="theme.js?v=20261109f"></script><script src="https://cdn.jsdelivr.net/npm/pocketbase@0.26.8/dist/pocketbase.umd.js"></script><script src="mock.js?v=20261109f"></script><script src="pdf.js?v=20261109f"></script><script src="app.js?v=20261109f"></script><title>Dashboard – Jessy James Helping Hands Foundation</title></head>
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><link rel="stylesheet" href="tailwind.css?v=20261109g"><script src="theme.js?v=20261109g"></script><script src="https://cdn.jsdelivr.net/npm/pocketbase@0.26.8/dist/pocketbase.umd.js"></script><script src="mock.js?v=20261109g"></script><script src="pdf.js?v=20261109g"></script><script src="app.js?v=20261109g"></script><title>Dashboard – Jessy James Helping Hands Foundation</title></head>
 <body class="bg-slate-50 text-slate-800"><div id="app"></div>
 <script>
 if (guard()) {
@@ -208,7 +208,19 @@ const startApp = () => layout({ brand: BRAND_SHORT, nav: [['overview', 'Overview
       b.disabled = false;
     };
   }
-}, support: true, deps: { overview: ['subscriptions', 'payments', 'wallet_txs'], wallet: ['wallet_txs', 'subscriptions', 'payments', 'deposits'], plans: ['plans'], mine: ['subscriptions', 'payments', 'payouts', 'wallet_txs'], payments: ['payments', 'payouts'], fees: ['fees'], payouts: ['payouts'], rules: [], profile: [] }, chip: async () => naira(await walletBal()), live: ['plans', 'subscriptions', 'payments', 'payouts', 'fees', 'wallet_txs', 'deposits'], onLive: (c, e) => {
+}, support: true,
+// counters beside the menu: receipts being checked or turned down, new plans, plan codes ready to use, payout decisions
+badges: async () => {
+  const id = U().id, q = (f, v) => pb.filter(f, { u: id, t: v || '' }), now = new Date().toISOString().replace('T', ' ');
+  const [checking, turned, plans, codes, payouts] = await Promise.all([
+    countOf('deposits', q('user={:u} && status="pending" && gateway="transfer"')),
+    countOf('deposits', q('user={:u} && (status="failed" || status="reversed") && gateway="transfer" && updated>{:t}', seenAt('wallet'))),
+    countOf('plans', q('active=true && created>{:t}', seenAt('plans'))),
+    countOf('subscriptions', pb.filter('user={:u} && code!="" && code_used_at="" && code_admin="" && code_from<={:n} && code_until>{:n}', { u: id, n: now })),
+    countOf('payouts', q('user={:u} && status!="pending" && updated>{:t}', seenAt('payouts')))]);
+  return { wallet: checking + turned, plans, mine: codes, payouts };
+},
+deps: { overview: ['subscriptions', 'payments', 'wallet_txs'], wallet: ['wallet_txs', 'subscriptions', 'payments', 'deposits'], plans: ['plans'], mine: ['subscriptions', 'payments', 'payouts', 'wallet_txs'], payments: ['payments', 'payouts'], fees: ['fees'], payouts: ['payouts'], rules: [], profile: [] }, chip: async () => naira(await walletBal()), live: ['plans', 'subscriptions', 'payments', 'payouts', 'fees', 'wallet_txs', 'deposits'], onLive: (c, e) => {
   if (c === 'subscriptions' && e.action === 'update' && e.record.code_used_at && Date.now() - parseTs(e.record.code_used_at).getTime() < 120000) {
     const k = 'cu:' + e.record.id; if (!sessionStorage.getItem(k)) { sessionStorage.setItem(k, 1); toast('Your plan code ' + e.record.code + ' was just used by ' + (e.record.code_used_name || 'a member') + '.', 0, 8000); }
     return;

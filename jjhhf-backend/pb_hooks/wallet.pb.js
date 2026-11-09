@@ -143,6 +143,14 @@ routerAdd("GET", "/api/jjhhf/admin/stats", (e) => {
 cronAdd("jjhhf_deposit_check", "*/10 * * * *", () => {
   const D = require(`${__hooks}/deposits.js`), W = require(`${__hooks}/wallet.js`);
   const now = Date.now();
+  // online payments paused: online checkouts that were opened but never finished are closed as "not completed"
+  // (bank-transfer receipts are never touched here; they wait for an admin)
+  if (($os.getenv("ONLINE_PAYMENTS") || "").toLowerCase() !== "on") {
+    $app.findRecordsByFilter("deposits", "status = 'pending' && gateway != 'transfer' && created <= {:a}", "created", 500, 0, { a: W.ts(new Date(now - 30 * 60e3)) }).forEach(d => {
+      try { d.set("status", "failed"); d.set("note", "Online checkout not completed"); $app.save(d); } catch (err) { console.log("jjhhf close checkout:", d.id, String(err)); }
+    });
+    return;
+  }
   $app.findRecordsByFilter("deposits", "status = 'pending' && created <= {:a} && created >= {:b}", "created", 200, 0,
     { a: W.ts(new Date(now - 3 * 60e3)), b: W.ts(new Date(now - 2 * 864e5)) }).forEach(d => {
     try { D.settle(d.getString("tx_ref"), ""); } catch (err) { console.log("jjhhf deposit check:", d.getString("tx_ref"), String(err)); }
