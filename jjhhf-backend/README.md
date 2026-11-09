@@ -54,6 +54,29 @@ Sign up on the website, then in the PocketBase panel open **users**, edit yourse
 - Starting point: 1 vCPU / 1 GB RAM covers a few hundred people online. For thousands online at once, raise the limits to about 4–8 vCPU / 4–8 GB (Railway Pro allows more). Logins and sign-ups use the most CPU (password hashing), and each open dashboard holds one live connection.
 - Put the Volume in the same region as the service. Watch CPU and RAM in Railway's Metrics tab and raise the limits before they reach about 70%.
 
+## Deposits by bank transfer (current)
+
+Online payment partners (Flutterwave, Paystack, Monnify) are **paused**. Members transfer to the foundation account and upload the receipt.
+
+1. Admin > Receipts > **Account and settings**: bank name, 10-digit account number, account name, automatic approval on/off,
+   the largest amount credited automatically, and how many days old a receipt may be.
+2. Railway > Variables: `ANTHROPIC_API_KEY` (from console.anthropic.com) turns on automatic receipt reading.
+   Optional `RECEIPT_AI_MODEL` (default `claude-haiku-5-5`). Without the key every receipt waits for an admin.
+3. A receipt is credited at once only when it is a successful transfer receipt that does not look edited, the amount is exactly
+   amount + ₦100, it was paid into our account number, it is dated within the allowed days, and the same file or transaction
+   reference was never uploaded before. Everything else waits in Admin > Receipts.
+4. Credited-automatically receipts show under **To check**: compare with the bank statement, then **Confirm** or **Reverse**
+   (money taken back; the wallet may go below zero). Waiting ones: **Approve** or **Reject**.
+
+To bring the online partners back later, set `ONLINE_PAYMENTS=on` (their code is still in gateways.js / deposits.js).
+
+## Admin tools added
+- **Add existing plan** (member page): for members who were saving manually. Choose the plan, how long it has been running and
+  the amount already paid; no joining fee is taken and the plan carries on automatically. Payments already due and unpaid are
+  collected from the wallet straight away (late ones with the usual penalty), as the preview warns.
+- **Suspend / Restore account** (member page): a suspended member cannot sign in or use the site and sees the reason.
+  Their plans keep running.
+
 ## Rules summary
 
 - **Plans:** Grocery only, 4, 8, 12 or 25 weeks (admin can type any length), daily or weekly contributions, running from the day of joining. (Migration `1760000007` hides any old Cash/Foodie plans; existing memberships keep working.)

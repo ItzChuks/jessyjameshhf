@@ -3,6 +3,8 @@
 
 // 1) Deposit: the member chooses an amount; the server records it and returns a Flutterwave Checkout link (amount + ₦100 tax charge).
 routerAdd("POST", "/api/jjhhf/wallet/deposit", (e) => {
+  // online payment partners are paused: deposits are made by bank transfer with a receipt (transfers.js). Set ONLINE_PAYMENTS=on to bring them back.
+  if (($os.getenv("ONLINE_PAYMENTS") || "").toLowerCase() !== "on") throw new BadRequestError("Online payments are paused. Please deposit by bank transfer and upload your receipt.");
   const D = require(`${__hooks}/deposits.js`);
   const body = e.requestInfo().body || {};
   return e.json(200, D.start($app, e.auth.id, body.amount, String(body.redirect || "")));
@@ -126,11 +128,13 @@ routerAdd("GET", "/api/jjhhf/admin/stats", (e) => {
   const dp = one("SELECT COALESCE(SUM(CASE WHEN [[status]] = 'successful' THEN 1 ELSE 0 END), 0) AS ok, COALESCE(SUM(CASE WHEN [[status]] = 'successful' THEN [[amount]] ELSE 0 END), 0) AS total, COALESCE(SUM(CASE WHEN [[status]] = 'pending' THEN 1 ELSE 0 END), 0) AS pending FROM {{deposits}}", { ok: 0, total: -0, pending: 0 });
   const tx = one("SELECT COALESCE(SUM([[amount]]), 0) AS tax FROM {{fees}} WHERE [[status]] = 'confirmed' AND [[type]] = 'tax'", { tax: -0 });
   const byGw = {}; ["flutterwave", "paystack", "monnify"].forEach(g => { const r = one("SELECT COUNT(*) AS n, COALESCE(SUM([[amount]]), 0) AS total FROM {{deposits}} WHERE [[status]] = 'successful' AND [[gateway]] = '" + g + "'", { n: 0, total: -0 }); byGw[g] = { n: r.n, total: r.total }; });
+  const rc = one("SELECT COALESCE(SUM(CASE WHEN [[status]] = 'pending' AND [[gateway]] = 'transfer' THEN 1 ELSE 0 END), 0) AS waiting, COALESCE(SUM(CASE WHEN [[status]] = 'successful' AND [[verified]] = 'auto' THEN 1 ELSE 0 END), 0) AS tocheck, COALESCE(SUM(CASE WHEN [[status]] = 'reversed' THEN [[amount]] ELSE 0 END), 0) AS reversed FROM {{deposits}}", { waiting: 0, tocheck: 0, reversed: -0 });
+  const sp = one("SELECT COUNT(*) AS n FROM {{users}} WHERE [[suspended]] = TRUE", { n: 0 });
   const cd = one("SELECT COALESCE(SUM(CASE WHEN [[code_used_at]] != '' OR [[code_admin]] = 'used' THEN 1 ELSE 0 END), 0) AS used, COALESCE(SUM(CASE WHEN [[code]] != '' AND [[code_used_at]] = '' AND [[code_admin]] = '' AND [[code_from]] <= {:now} AND [[code_until]] > {:now} THEN 1 ELSE 0 END), 0) AS open FROM {{subscriptions}}".replace(/\{:now\}/g, "'" + new Date().toISOString().replace("T", " ") + "'"), { used: 0, open: 0 });
   return e.json(200, {
     users: all.users, members: u.members, registered: u.registered, unregistered: u.members - u.registered, withAccount: u.withAccount, admins: all.users - u.members,
     held: all.held, subscriptions: s.n, activeSubscriptions: s.active, pendingPayments: p.pending, confirmedTotal: p.confirmed, penalties: p.penalties,
-    fees: f.fees - tx.tax, tax: tx.tax, deposits: dp.ok, depositTotal: dp.total, pendingDeposits: dp.pending, codesUsed: cd.used, codesOpen: cd.open, byGateway: byGw, gateways: require(`${__hooks}/gateways.js`).enabled(), pendingPayouts: po.pending, plans: pl.n, topups: tu.n, topupTotal: tu.total,
+    fees: f.fees - tx.tax, tax: tx.tax, receiptsWaiting: rc.waiting, receiptsToCheck: rc.tocheck, reversedTotal: rc.reversed, suspended: sp.n, deposits: dp.ok, depositTotal: dp.total, pendingDeposits: dp.pending, codesUsed: cd.used, codesOpen: cd.open, byGateway: byGw, gateways: require(`${__hooks}/gateways.js`).enabled(), pendingPayouts: po.pending, plans: pl.n, topups: tu.n, topupTotal: tu.total,
   });
 }, $apis.requireAuth());
 
@@ -195,7 +199,75 @@ routerAdd("POST", "/api/jjhhf/admin/gateway/shuffle", (e) => {
 //     are given one automatically.
 cronAdd("jjhhf_gateway_assign", "*/15 * * * *", () => {
   const G = require(`${__hooks}/gateways.js`);
-  if (!G.enabled().length) return;
+  if (($os.getenv("ONLINE_PAYMENTS") || "").toLowerCase() !== "on" || !G.enabled().length) return;   // paused with online payments
   try { const r = G.shuffle($app, "unassigned"); if (r.total) console.log("jjhhf gateway assign: gave a provider to", r.total, "members"); }
   catch (err) { console.log("jjhhf gateway assign:", String(err)); }
 });
+
+// ===================== bank transfers with a receipt (transfers.js) =====================
+// 13) The receiving account and the deposit rules, for the member's Wallet page.
+routerAdd("GET", "/api/jjhhf/transfer/info", (e) => {
+  const T = require(`${__hooks}/transfers.js`), S = T.settingsObj($app);
+  return e.json(200, { bank_name: S.bank_name, account_number: S.account_number, account_name: S.account_name, transfer_note: S.transfer_note, tax: T.TAX, min: T.MIN, auto: S.auto_approve, max_age_days: S.max_age_days || 2 });
+}, $apis.requireAuth());
+
+// 14) A member submits a transfer: multipart form with amount, sender_name and the receipt file. The receipt is read and checked at once.
+routerAdd("POST", "/api/jjhhf/transfer", (e) => {
+  const T = require(`${__hooks}/transfers.js`);
+  const body = e.requestInfo().body || {};
+  let files = []; try { files = e.findUploadedFiles("receipt") || []; } catch (_) { }
+  return e.json(200, T.submit($app, e.auth.id, body.amount, files[0], body.sender_name));
+}, $apis.requireAuth(), $apis.bodyLimit(8 * 1024 * 1024));
+
+// 15) Admin: approve | reject | confirm | reverse a transfer.
+routerAdd("POST", "/api/jjhhf/admin/transfer", (e) => {
+  const T = require(`${__hooks}/transfers.js`);
+  if (e.auth.getString("role") !== "admin") throw new ForbiddenError("Admins only.");
+  const b = e.requestInfo().body || {};
+  return e.json(200, T.review($app, e.auth.id, b.id, String(b.action || ""), b.note));
+}, $apis.requireAuth());
+
+// 16) Admin: read / save the receiving account and the automatic-approval settings.
+routerAdd("POST", "/api/jjhhf/admin/settings", (e) => {
+  if (e.auth.getString("role") !== "admin") throw new ForbiddenError("Admins only.");
+  const b = e.requestInfo().body || {};
+  let r; try { r = $app.findFirstRecordByFilter("app_settings", "id != ''"); } catch (_) { r = new Record($app.findCollectionByNameOrId("app_settings")); }
+  const acct = String(b.account_number || "").replace(/\D/g, "");
+  if (acct && acct.length !== 10) throw new BadRequestError("Enter the 10-digit account number.");
+  r.set("bank_name", String(b.bank_name || "").trim().slice(0, 100));
+  r.set("account_number", acct);
+  r.set("account_name", String(b.account_name || "").trim().slice(0, 150));
+  r.set("transfer_note", String(b.transfer_note || "").trim().slice(0, 500));
+  r.set("auto_approve", !!b.auto_approve);
+  r.set("auto_max", Math.max(0, Math.round(Number(b.auto_max) || 0)));
+  r.set("max_age_days", Math.min(30, Math.max(0, Math.round(Number(b.max_age_days) || 0))));
+  $app.save(r);
+  return e.json(200, require(`${__hooks}/transfers.js`).settingsObj($app));
+}, $apis.requireAuth());
+routerAdd("GET", "/api/jjhhf/admin/settings", (e) => {
+  if (e.auth.getString("role") !== "admin") throw new ForbiddenError("Admins only.");
+  return e.json(200, Object.assign(require(`${__hooks}/transfers.js`).settingsObj($app), { ai: !!$os.getenv("ANTHROPIC_API_KEY") }));
+}, $apis.requireAuth());
+
+// 17) Admin: add a plan a member was running manually (how long it has run and how much was paid); it carries on automatically.
+routerAdd("POST", "/api/jjhhf/admin/import-plan", (e) => {
+  const W = require(`${__hooks}/wallet.js`);
+  if (e.auth.getString("role") !== "admin") throw new ForbiddenError("Admins only.");
+  const b = e.requestInfo().body || {};
+  let out = {};
+  W.inTx((tx) => { out = W.importPlan(tx, String(b.user || ""), b.plan, b.days, b.amount_paid, b.note); });
+  return e.json(200, out);
+}, $apis.requireAuth());
+
+// 18) Admin: suspend / restore a member account. A suspended member cannot sign in or use the site (see main.pb.js).
+routerAdd("POST", "/api/jjhhf/admin/suspend", (e) => {
+  if (e.auth.getString("role") !== "admin") throw new ForbiddenError("Admins only.");
+  const b = e.requestInfo().body || {}, on = !!b.suspended;
+  let u; try { u = $app.findRecordById("users", String(b.user || "")); } catch (_) { throw new BadRequestError("Member not found."); }
+  if (u.getString("role") === "admin") throw new BadRequestError("An admin account cannot be suspended. Make them a member first.");
+  const reason = String(b.reason || "").trim().slice(0, 300);
+  if (on && !reason) throw new BadRequestError("Give a reason; the member sees it when they try to sign in.");
+  u.set("suspended", on); u.set("suspended_reason", on ? reason : ""); u.set("suspended_at", on ? new Date().toISOString().replace("T", " ") : "");
+  $app.save(u);
+  return e.json(200, { suspended: on });
+}, $apis.requireAuth());

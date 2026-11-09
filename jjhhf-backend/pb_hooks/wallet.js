@@ -13,7 +13,7 @@ const dayLagos = d => { const l = new Date(d.getTime() + 36e5); return l.getUTCD
 function post(app, uid, amount, kind, note, extra = {}) {
   const u = app.findRecordById("users", uid);
   const bal = u.getFloat("wallet_balance") + amount;
-  if (bal < 0) throw new BadRequestError("Not enough money in your wallet.");
+  if (bal < 0 && !extra.allowNegative) throw new BadRequestError("Not enough money in your wallet.");   // allowNegative: an admin reversing a deposit
   u.set("wallet_balance", bal);
   app.save(u);
   const tx = new Record(app.findCollectionByNameOrId("wallet_txs"));
@@ -216,6 +216,47 @@ function joinMany(app, uid, planId, code, qty, codes) {
   return { subscription: subs[0], subscriptions: subs, count: n, codesUsed: list.length };
 }
 
+// ---- plans brought over from manual records (admin) ----
+// Adds a plan to a member as if they had joined it "days" days ago (0 = today), with "amountPaid" already paid (a whole number of
+// contributions). No joining fee is taken and the wallet is not touched for what was paid before. From then on the plan runs exactly
+// like any other: the next payments are collected from the wallet automatically. Payments that are already due but not covered by
+// amountPaid are collected at once if the wallet can pay them (late ones with the usual penalty).
+function importPlan(app, uid, planId, days, amountPaid, note) {
+  let plan; try { plan = app.findRecordById("plans", String(planId || "")); } catch (_) { throw new BadRequestError("That plan does not exist."); }
+  try { app.findRecordById("users", String(uid || "")); } catch (_) { throw new BadRequestError("Member not found."); }
+  const pl = R.planObj(plan);
+  days = Math.floor(Number(days));
+  if (!(days >= 0 && days <= 3650)) throw new BadRequestError("Enter how many days the plan has been running (0 if it starts today).");
+  const paid = Math.round(Number(amountPaid || 0));
+  if (paid < 0 || paid % Math.round(pl.amount)) throw new BadRequestError("Amount paid must be a multiple of the contribution, " + naira(pl.amount) + ".");
+  const k = paid / Math.round(pl.amount);
+  // the joining moment: 08:00 Lagos time, "days" days ago
+  const L = new Date(Date.now() + 36e5), start = new Date(Date.UTC(L.getUTCFullYear(), L.getUTCMonth(), L.getUTCDate() - days, 8) - 36e5);
+  const n = R.sched({ id: "", created: ts(start) }, pl).n;
+  if (k > n) throw new BadRequestError("This plan has only " + n + " payments (" + naira(n * pl.amount) + " in total).");
+
+  const sub = new Record(app.findCollectionByNameOrId("subscriptions"));
+  sub.set("user", uid); sub.set("plan", plan.id); sub.set("status", "active"); sub.set("imported", true);
+  sub.set("import_note", String(note || "").trim().slice(0, 300) || "Brought over from manual records");
+  app.save(sub);
+  // "created" is filled in automatically on save; move it back to the real joining day
+  app.db().newQuery("UPDATE {{subscriptions}} SET [[created]] = {:c} WHERE [[id]] = {:id}").bind({ c: ts(start), id: sub.id }).execute();
+  const rec = app.findRecordById("subscriptions", sub.id), s = { id: rec.id, created: rec.getString("created") };
+  const win = R.codeWindow(s.created, plan.getInt("code_from_day"), plan.getInt("code_until_day"));
+  if (win) { rec.set("code", newCode(app)); rec.set("code_from", ts(win.from)); rec.set("code_until", ts(win.until)); }
+  if (k > 0) {
+    const p = new Record(app.findCollectionByNameOrId("payments"));
+    p.set("user", uid); p.set("subscription", rec.id); p.set("amount", paid); p.set("status", "confirmed"); p.set("penalty", 0);
+    p.set("installments", k); p.set("late_count", 0); p.set("note", "Brought over from manual records · " + k + " payment" + (k === 1 ? "" : "s"));
+    app.save(p);
+  }
+  rec.set("paid_count", k); rec.set("next_collect", nextCollect(s, pl, k));
+  app.save(rec);
+  const before = R.stateFromPaid(s, pl, k, new Date());
+  const took = collect(app, uid);
+  return { subscription: rec.id, paid: k, payments: n, dueNow: before.overdue, collected: took };
+}
+
 // Runs fn inside a transaction. A BadRequestError thrown inside loses its message on the way out of the transaction, so it is re-thrown here
 // with the same message (the member sees e.g. "Your wallet needs ₦149,000 ...").
 function inTx(fn) {
@@ -226,4 +267,4 @@ function inTx(fn) {
   }
 }
 
-module.exports = { FEES, MAX_SLOTS, naira, post, credit, collect, joinPlan, joinMany, balanceOf, inTx, syncSub, ts, DONE, codeState, normCode };
+module.exports = { FEES, MAX_SLOTS, naira, post, credit, collect, joinPlan, joinMany, importPlan, balanceOf, inTx, syncSub, ts, DONE, codeState, normCode };

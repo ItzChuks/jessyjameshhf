@@ -9,11 +9,11 @@
 <meta property="og:title" content="Jessy James Helping Hands Foundation">
 <meta property="og:description" content="Your trusted community building, empowerment initiative and savings foundation in Ikotun, Lagos.">
 <meta name="twitter:card" content="summary_large_image">
-<link rel="stylesheet" href="tailwind.css?v=20261109e">
-<script src="theme.js?v=20261109e"></script>
+<link rel="stylesheet" href="tailwind.css?v=20261109f">
+<script src="theme.js?v=20261109f"></script>
 <script src="https://cdn.jsdelivr.net/npm/pocketbase@0.26.8/dist/pocketbase.umd.js"></script>
-<script src="mock.js?v=20261109e"></script>
-<script src="app.js?v=20261109e"></script>
+<script src="mock.js?v=20261109f"></script>
+<script src="app.js?v=20261109f"></script>
 <script>document.documentElement.classList.remove('dark');</script>
 <style>
   .grain{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.06'/%3E%3C/svg%3E")}
@@ -121,7 +121,7 @@
       <div class="rv lift rounded-3xl bg-white ring-1 ring-slate-200 p-7">
         <div class="w-12 h-12 rounded-2xl bg-brand-50 text-brand-700 grid place-items-center"><svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M3 7h16a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2zM3 7l2-3h12v3M16 13.5h2"/></svg></div>
         <h3 class="font-semibold text-lg text-brand-950 mt-5">Transparent savings</h3>
-        <p class="text-slate-600 mt-2 leading-relaxed">Every member gets a personal wallet, funded securely through Flutterwave, Paystack or Monnify. Every naira in and out is recorded on your dashboard with receipts.</p>
+        <p class="text-slate-600 mt-2 leading-relaxed">Every member gets a personal wallet, funded by bank transfer with a receipt. Every naira in and out is recorded on your dashboard with receipts.</p>
       </div>
     </div>
   </div>
@@ -181,7 +181,7 @@
     </div>
     <ol class="mt-14 grid md:grid-cols-2 lg:grid-cols-4 gap-5">
       <li class="rv relative rounded-3xl bg-[#fbfaf7] ring-1 ring-slate-200 p-7"><span class="font-display text-5xl text-accent-400">01</span><h3 class="font-semibold text-lg text-brand-950 mt-4">Create an account</h3><p class="text-slate-600 mt-2 text-sm leading-relaxed">Sign up with your name, email, country and phone number, and accept the terms. Your dashboard is ready straight away.</p></li>
-      <li class="rv relative rounded-3xl bg-[#fbfaf7] ring-1 ring-slate-200 p-7"><span class="font-display text-5xl text-accent-400">02</span><h3 class="font-semibold text-lg text-brand-950 mt-4">Fund your wallet</h3><p class="text-slate-600 mt-2 text-sm leading-relaxed">Open Wallet and pay online through our payment partner (card, transfer or USSD). No BVN needed. A <span data-fee="tax"></span> tax charge applies to each deposit.</p></li>
+      <li class="rv relative rounded-3xl bg-[#fbfaf7] ring-1 ring-slate-200 p-7"><span class="font-display text-5xl text-accent-400">02</span><h3 class="font-semibold text-lg text-brand-950 mt-4">Fund your wallet</h3><p class="text-slate-600 mt-2 text-sm leading-relaxed">Open Wallet, transfer to the foundation account and upload your receipt. No BVN needed. A <span data-fee="tax"></span> tax charge applies to each deposit.</p></li>
       <li class="rv relative rounded-3xl bg-[#fbfaf7] ring-1 ring-slate-200 p-7"><span class="font-display text-5xl text-accent-400">03</span><h3 class="font-semibold text-lg text-brand-950 mt-4">Join your plans</h3><p class="text-slate-600 mt-2 text-sm leading-relaxed">Pick a 4, 8, 12 or 25-week plan. You pay the <span data-fee="join"></span> joining fee and your first payment when you join. Got a plan code? Enter it then.</p></li>
       <li class="rv relative rounded-3xl bg-[#fbfaf7] ring-1 ring-slate-200 p-7"><span class="font-display text-5xl text-accent-400">04</span><h3 class="font-semibold text-lg text-brand-950 mt-4">Collect your payout</h3><p class="text-slate-600 mt-2 text-sm leading-relaxed">When the plan is complete and another plan has been running for 2 weeks, request your payout. T-shirt and clearance fees apply.</p></li>
     </ol>
@@ -336,7 +336,7 @@
   // ----- FAQ -----
   const FAQ = [
     ['Who can join?', 'Anyone who can pay online. Create an account with your name, email, country and phone number, accept the terms, and your dashboard is ready.'],
-    ['How do I fund my wallet?', 'Open Wallet on your dashboard, enter an amount and pay online through your payment partner (Flutterwave, Paystack or Monnify; card, bank transfer or USSD). No BVN or NIN is needed. A ' + naira(FEES.tax) + ' tax charge is added to every deposit: to add ' + naira(3000) + ' you pay ' + naira(3000 + FEES.tax) + '. Your wallet is credited as soon as the payment is confirmed.'],
+    ['How do I fund my wallet?', 'Open Wallet on your dashboard, enter an amount, transfer it to the foundation account shown there and upload your receipt. No BVN or NIN is needed. A ' + naira(FEES.tax) + ' tax charge is added to every deposit: to add ' + naira(3000) + ' you pay ' + naira(3000 + FEES.tax) + '. Your wallet is credited as soon as the payment is confirmed.'],
     ['What plans are there?', 'Grocery plans of 4, 8, 12 and 25 weeks, with daily or weekly contributions. Join as many as you like; a ' + naira(FEES.join) + ' joining fee is taken from your wallet each time you join.'],
     ['What is a plan code?', 'Every plan you join gives you a code. It becomes usable on a set day after you join and expires on a later day (both shown on the plan). Enter it in the optional Plan code box when you join a new plan, or share it with someone else. It works once only; after that it shows as used, and an unused code shows as expired.'],
     ['When are my payments taken?', 'Your first payment is taken the day you join. After that, weekly plans are paid every 7 days counted from your joining day (daily plans every day), automatically from your wallet from midnight on the due day. Each payment must be made before 12:00 noon on its due day; if your wallet is short and it is still unpaid at 12 noon, it costs double. Keep your wallet funded.'],

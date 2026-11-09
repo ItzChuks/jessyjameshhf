@@ -15,6 +15,14 @@ const MAX_SLOTS = 50;   // a member can hold up to 50 running memberships of the
 // ===== end config =====
 
 const pb = USE_MOCK ? createMockPB() : new PocketBase(PB_URL);
+// a suspended member is signed out at their next request and sees the reason on the sign-in page (pb_hooks/main.pb.js)
+if (!USE_MOCK) pb.afterSend = (res, data) => {
+  if (res.status === 403 && /suspended/i.test((data && data.message) || '') && pb.authStore.isValid && pb.authStore.record?.collectionName === 'users') {
+    pb.authStore.clear(); try { sessionStorage.setItem('jj_suspended', data.message); } catch (_) { }
+    if (!/auth\.html/.test(location.pathname)) location.href = 'auth.html';
+  }
+  return data;
+};
 pb.autoCancellation?.(false);   // the pages fire several identical requests in parallel; don't let the SDK cancel them
 const SUPPORT_WHATSAPP = '234' + SUPPORT_PHONE.slice(1);  // same number in international form for WhatsApp
 
@@ -206,7 +214,7 @@ const covers = p => { const pl = p.expand?.subscription?.expand?.plan || {}; ret
 const feeRulesHTML = () => {
   const c = (t, d) => `<div class="bg-white border rounded-xl p-5"><h3 class="font-semibold text-slate-900 text-sm">${t}</h3><p class="text-sm text-slate-600 mt-1.5 leading-relaxed">${d}</p></div>`;
   return '<div class="grid md:grid-cols-2 gap-4 max-w-4xl">'
-    + c('Your wallet', `Every member has a <b>wallet</b> on the dashboard. Open <b>Wallet</b>, enter an amount and pay online through our payment partner (<b>Flutterwave, Paystack or Monnify</b>; card, bank transfer or USSD). No BVN or NIN is needed. Your wallet is credited as soon as the payment is confirmed, and every fee and contribution is taken from it.`)
+    + c('Your wallet', `Every member has a <b>wallet</b> on the dashboard. Open <b>Wallet</b>, enter an amount, transfer it (plus the charge) to the foundation account shown there, and upload your receipt. No BVN or NIN is needed. A receipt that matches exactly (amount, our account number, date) is credited at once; otherwise an admin checks it. Every fee and contribution is taken from your wallet.`)
     + c(`Tax charge · ${naira(FEES.tax)} per deposit`, `Every payment into your wallet carries a <b>${naira(FEES.tax)} tax charge</b>, added at checkout. To put ${naira(3000)} in your wallet you pay <b>${naira(3000 + FEES.tax)}</b>; your wallet receives the full ${naira(3000)}.`)
     + c(`Joining fee · ${naira(FEES.join)}`, `Taken from your wallet each time you join a plan, separately from your contributions. You can join the same plan up to ${MAX_SLOTS} times (each one is a separate membership with its own fee, payments and payout). If your wallet is short, you are asked to deposit the difference first.`)
     + c('Plan codes', `Every plan you join gives you a <b>plan code</b>. It becomes usable on a set day after you join and expires on a later day (both shown on the plan). Use it, or share it with someone else, in the optional <b>Plan code</b> box when joining a new plan. A code works <b>once only</b>; after that it shows as used, with who used it. An unused code shows as expired after its last day.`)
@@ -220,7 +228,7 @@ const termsHTML = () => {
   const m = RULES.lateMultiplier, S = (n, t, body) => `<section class="bg-white border rounded-xl p-5 sm:p-6"><h2 class="font-semibold text-slate-900">${n}. ${t}</h2><div class="text-sm text-slate-600 mt-2 leading-relaxed space-y-2">${body}</div></section>`;
   return '<div class="space-y-4">'
     + S(1, 'About these terms', `<p>${BRAND} is a community savings foundation where members contribute daily or weekly towards a grocery payout. By creating an account you confirm that you have read, understood and accepted these Terms and Conditions, including every fee listed below.</p>`)
-    + S(2, 'Your wallet and deposits', `<p>Every member has a <b>wallet</b> on their dashboard. You fund it from the Wallet page by paying online through one of our payment partners, <b>Flutterwave, Paystack or Monnify</b> (card, bank transfer or USSD). Each member is assigned one partner, which is shown on the Wallet page. No BVN or NIN is required. Your wallet is credited once the partner confirms the payment, usually within moments.</p><p>Every deposit carries a <b>tax charge of ${naira(FEES.tax)}</b>, added to the amount you pay at checkout (for example, to deposit ${naira(3000)} you pay ${naira(3000 + FEES.tax)}). The tax charge is not added to your wallet and is not refundable.</p><p>All fees and contributions are paid <b>from your wallet</b>. Money in your wallet stays yours until a fee or contribution is taken from it under these terms.</p>`)
+    + S(2, 'Your wallet and deposits', `<p>Every member has a <b>wallet</b> on their dashboard. You fund it from the Wallet page by <b>bank transfer</b> to the foundation account shown there, then uploading the receipt (screenshot, photo or PDF). No BVN or NIN is required. The receipt is checked automatically: if the amount, the receiving account number and the date match, and the receipt has not been used before, your wallet is credited at once. Otherwise an admin checks it against the bank statement and credits it, or rejects it.</p><p>Every deposit is compared with the foundation's bank statement. If money credited from a receipt did not actually reach the foundation's account, the deposit is <b>reversed</b>: the amount is taken back from your wallet, even if this takes your balance below zero, and your plans wait until the balance is above zero again. Uploading a false or edited receipt may lead to your account being <b>suspended</b>.</p><p>Every deposit carries a <b>tax charge of ${naira(FEES.tax)}</b>, added to the amount you transfer (for example, to deposit ${naira(3000)} you pay ${naira(3000 + FEES.tax)}). The tax charge is not added to your wallet and is not refundable.</p><p>All fees and contributions are paid <b>from your wallet</b>. Money in your wallet stays yours until a fee or contribution is taken from it under these terms.</p>`)
     + S(3, 'Plans', `<p>We offer <b>Grocery plans</b> of <b>4, 8, 12 and 25 weeks</b>. Every plan shows its contribution amount, how often you pay (daily or weekly), its length, the number of payments, the day payouts open and the payout. A plan runs from the day you join.</p><p>A joining fee of <b>${naira(FEES.join)}</b> is taken from your wallet each time you join a plan, separately from your contributions.</p><p>You may join the same plan several times, including several at once, up to <b>${MAX_SLOTS} running memberships of the same plan</b>. Each one is a separate membership with its own joining fee, payments, payout and plan code.</p>`)
     + S(4, 'Plan codes', `<p>Each time you join a plan, a unique <b>plan code</b> is created for that plan. The code becomes usable on a set day after you join and expires at the end of a later day; both are chosen by the foundation for each plan and shown on the plan.</p><p>While the code is usable, it can be entered (optionally) when joining a new plan, by you or by anyone you share it with. Each code can be used <b>once only</b>. Once used, it is marked as used, and both you and the foundation can see who used it and when. A code that is not used in time is marked as expired and cannot be used afterwards.</p>`)
     + S(5, 'Payment schedule, automatic payments and late penalties', `<p><b>Your first payment is made on the day you join</b>, together with the joining fee. After that, weekly plans are paid <b>every 7 days</b> counted from the day you join, and daily plans every day. For example, on a 4-week plan joined on the 1st of the month, payments fall on the 1st, 8th, 15th and 22nd.</p><p>You do not pay each contribution by hand: on each due day the contribution is taken from your wallet automatically. If you have several plans and your wallet cannot cover them all, plans are served from the oldest due date first; a plan that cannot be covered <b>waits</b> and is paid automatically as soon as you deposit.</p><p>All times are Lagos time (WAT). On each due day the contribution is taken from your wallet from midnight; it must be paid <b>before ${RULES.cutoffHour}:00 noon</b>. A contribution still unpaid at ${RULES.cutoffHour}:00 noon on its due day costs double when it is collected (for example ${naira(1000)} becomes ${naira(1000 * m)}). Your first payment is taken when you join, so it never carries a penalty. The extra amount is a penalty: it does not count towards your savings or payout. Keep enough in your wallet to avoid it.</p>`)
@@ -240,7 +248,7 @@ const rulesHTML = () => {
     + c('Weekly plans', `After the first payment, every <b>7 days</b> counted from the day you join. A 4-week plan joined on the 1st is paid on the 1st, 8th, 15th and 22nd, and its payout opens after 30 days.`)
     + c('Daily plans', `After the first payment, every day. Each day's contribution is taken from your wallet from midnight and must be paid before ${RULES.cutoffHour}:00 noon.`)
     + c('Pay before 12 noon', `Each due day's contribution is taken from your wallet from midnight. If it is still unpaid at <b>${RULES.cutoffHour}:00 noon</b> that day (because your wallet was short), it costs double when collected (${naira(500)} becomes ${naira(500 * m)}). A penalty is a fee: it does not count towards your savings or payout.`)
-    + c('Time and confirmation', `All dates use Lagos time (WAT), whatever your device clock says. Deposits are confirmed automatically by our payment partner (Flutterwave, Paystack or Monnify).`) + '</div>' + contactHTML();
+    + c('Time and confirmation', `All dates use Lagos time (WAT), whatever your device clock says. Deposits are made by bank transfer with a receipt, checked automatically or by an admin.`) + '</div>' + contactHTML();
 };
 
 // contact card (Rules pages); the homepage and footer show the same details
@@ -274,24 +282,70 @@ function codePanel(sub) {
 }
 window.copyCode = c => navigator.clipboard?.writeText(c).then(() => toast('Code copied: ' + c), () => toast(c));
 
-// ===== deposits through the member's payment provider (Flutterwave, Paystack or Monnify; amount + ₦100 tax charge) =====
-const GATEWAY_NAME = { flutterwave: 'Flutterwave', paystack: 'Paystack', monnify: 'Monnify' };
-// Starts a deposit and sends the member to Flutterwave; they come back to this page and dashboard.html settles it.
-async function startDeposit(amount) {
-  amount = Math.round(Number(amount) || 0);
-  if (amount < 100) throw new Error('The smallest deposit is ' + naira(100) + '.');
-  const r = await pb.send('/api/jjhhf/wallet/deposit', { method: 'POST', body: { amount, redirect: location.origin + location.pathname } });
-  if (r.demo) { toast(naira(amount) + ' added to your wallet (demo).'); refresh(); return; }
-  location.href = r.link;
+// ===== deposits by bank transfer with a receipt (pb_hooks/transfers.js) =====
+// Online payment partners (Flutterwave, Paystack, Monnify) are paused. The member transfers the amount + the ₦100 charge to the
+// foundation's account and uploads the receipt; the server reads it and credits the wallet at once when everything matches,
+// otherwise an admin checks it (Admin > Receipts).
+const GATEWAY_NAME = { flutterwave: 'Flutterwave', paystack: 'Paystack', monnify: 'Monnify', transfer: 'Bank transfer' };
+let _tinfo = null, _tinfoAt = 0;
+const transferInfo = async () => { if (!_tinfo || Date.now() - _tinfoAt > 60000) { _tinfo = await pb.send('/api/jjhhf/transfer/info', { method: 'GET' }); _tinfoAt = Date.now(); } return _tinfo; };
+// large photos are made smaller before upload (max 1800 px, JPEG), so they upload fast on mobile data; PDFs are sent as they are
+async function shrinkImage(file) {
+  if (!file || !/^image\/(jpeg|png|webp)$/.test(file.type) || file.size < 1.2e6) return file;
+  try {
+    const img = await createImageBitmap(file), k = Math.min(1, 1800 / Math.max(img.width, img.height));
+    const c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    const b = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.88));
+    return b ? new File([b], file.name.replace(/\.\w+$/, '') + '.jpg', { type: 'image/jpeg' }) : file;
+  } catch (_) { return file; }
 }
+window.copyText = (t, label) => navigator.clipboard?.writeText(String(t)).then(() => toast((label || 'Copied') + ': ' + t), () => toast(String(t)));
 // the "you pay" summary under an amount box
-const depositSummary = a => { a = Math.max(0, Math.round(+a || 0)); return `<div class="flex justify-between py-1"><span class="text-slate-500">Into your wallet</span><span class="font-medium">${naira(a)}</span></div><div class="flex justify-between py-1"><span class="text-slate-500">Tax charge</span><span class="font-medium">${naira(FEES.tax)}</span></div><div class="flex justify-between py-1.5 border-t mt-1 text-base"><span class="font-semibold text-slate-900">You pay</span><span class="font-semibold text-slate-900">${naira(a + FEES.tax)}</span></div>`; };
-// pop-up used when the wallet is short (e.g. joining a plan): prefilled with the shortfall
-window.depositBox = (amount = '') => {
-  modal('Deposit', `<label class="block text-sm"><span class="text-slate-600">Amount to add to your wallet (₦)</span><input name="amount" type="number" min="100" step="1" value="${esc(amount)}" required class="${inp} mt-1"></label><div id="dsum" class="text-sm rounded-lg border bg-slate-50 px-3 py-2">${depositSummary(amount)}</div><p class="text-xs text-slate-500">A ${naira(FEES.tax)} tax charge is added to every deposit. You pay on our payment partner's secure page (card, bank transfer or USSD) and come back here.</p>`,
-    async d => { await startDeposit(d.amount); }, 'Continue to payment');
-  const i = document.querySelector('[data-ui="modal"] [name="amount"]'); i.oninput = () => { $('#dsum').innerHTML = depositSummary(i.value); }; i.focus();
+const depositSummary = a => { a = Math.max(0, Math.round(+a || 0)); return `<div class="flex justify-between py-1"><span class="text-slate-500">Into your wallet</span><span class="font-medium">${naira(a)}</span></div><div class="flex justify-between py-1"><span class="text-slate-500">Charge</span><span class="font-medium">${naira(FEES.tax)}</span></div><div class="flex justify-between py-1.5 border-t mt-1 text-base"><span class="font-semibold text-slate-900">Transfer exactly</span><span class="font-semibold text-slate-900">${naira(a + FEES.tax)}</span></div>`; };
+// the account box (bank, account number with Copy, account name)
+const accountBox = (I, total) => `<div class="rounded-lg border bg-white divide-y text-sm">
+  <div class="flex items-center justify-between gap-3 px-3 py-2"><span class="text-slate-500">Bank</span><span class="font-medium text-slate-900 text-right">${esc(I.bank_name || '—')}</span></div>
+  <div class="flex items-center justify-between gap-3 px-3 py-2"><span class="text-slate-500">Account number</span><span class="flex items-center gap-2"><span class="font-mono text-base font-semibold tracking-wider text-slate-900">${esc(I.account_number)}</span><button type="button" onclick="copyText('${esc(I.account_number)}','Account number copied')" class="${btn2} !py-1 !px-2.5 text-xs">Copy</button></span></div>
+  <div class="flex items-center justify-between gap-3 px-3 py-2"><span class="text-slate-500">Account name</span><span class="font-medium text-slate-900 text-right">${esc(I.account_name || '—')}</span></div>
+  ${total != null ? `<div class="flex items-center justify-between gap-3 px-3 py-2 bg-amber-50"><span class="text-amber-900">Amount to transfer</span><span class="flex items-center gap-2"><span id="tamt" class="font-semibold text-amber-900">${naira(total)}</span><button type="button" onclick="copyText(document.getElementById('tamt').dataset.v||'${total}','Amount copied')" class="${btn2} !py-1 !px-2.5 text-xs">Copy</button></span></div>` : ''}</div>`;
+// The deposit window: amount, where to pay, then the receipt. Used from the Wallet page and whenever the wallet is short.
+async function transferBox(amount = '') {
+  let I; try { I = await transferInfo(); } catch (x) { return toast(x.message, 1); }
+  if (!I.account_number) return toast('Deposits are not open yet. Please contact customer care.', 1, 6000);
+  const a0 = Math.max(0, Math.round(+amount || 0));
+  modal('Deposit by bank transfer',
+    `<div class="text-sm"><p class="font-semibold text-slate-900">1. How much do you want in your wallet?</p><input name="amount" type="number" min="${I.min || 100}" step="1" value="${a0 || ''}" required placeholder="e.g. 5000" class="${inp} mt-1 text-lg"><div id="dsum" class="text-sm rounded-lg border bg-slate-50 px-3 py-2 mt-2">${depositSummary(a0)}</div></div>`
+    + `<div class="text-sm"><p class="font-semibold text-slate-900 mb-1">2. Transfer to this account</p>${accountBox(I, a0 + FEES.tax)}<p class="text-xs text-slate-500 mt-1">Transfer the <b>exact amount</b> shown, including the ${naira(FEES.tax)} charge. ${esc(I.transfer_note || '')}</p></div>`
+    + `<div class="text-sm space-y-2"><p class="font-semibold text-slate-900">3. Upload your receipt</p><label class="block"><span class="text-slate-600">Name on the account you paid from</span><input name="sender_name" required autocomplete="name" value="${esc(pb.authStore.record?.name || '')}" class="${inp} mt-1"></label><label class="block"><span class="text-slate-600">Receipt (screenshot, photo or PDF)</span><input name="receipt" type="file" required accept="image/*,application/pdf" class="mt-1 block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-100 file:px-3 file:py-2 file:text-sm file:font-medium"></label><p class="text-xs text-slate-500">The receipt must show the amount, our account number, the date and the transaction reference. ${I.auto ? 'It is checked automatically; if everything matches, your wallet is credited at once.' : 'An admin checks it and credits your wallet.'}</p></div>`,
+    async d => {
+      const amt = Math.round(+d.amount || 0);
+      if (amt < (I.min || 100)) throw new Error('The smallest deposit is ' + naira(I.min || 100) + '.');
+      if (!d.receipt || !d.receipt.size) throw new Error('Choose your receipt file.');
+      const sub = document.querySelector('[data-ui="modal"] button:not([type])'); if (sub) { sub.disabled = true; sub.textContent = 'Checking your receipt…'; }
+      try {
+        const f = new FormData(); f.append('amount', String(amt)); f.append('sender_name', d.sender_name || ''); f.append('receipt', await shrinkImage(d.receipt));
+        const r = await pb.send('/api/jjhhf/transfer', { method: 'POST', body: f });
+        if (r.status === 'successful') toast(r.message, 0, 7000);
+        else setTimeout(() => confirmBox({ title: 'Receipt received', message: r.message, confirmText: 'OK', cancelText: 'Close' }), 50);
+      } catch (x) { if (sub) { sub.disabled = false; sub.textContent = 'Submit receipt'; } throw x; }
+    }, 'Submit receipt');
+  const M = document.querySelector('[data-ui="modal"]'), i = M.querySelector('[name="amount"]');
+  const upd = () => { const v = Math.max(0, Math.round(+i.value || 0)); $('#dsum').innerHTML = depositSummary(v); const t = $('#tamt'); if (t) { t.textContent = naira(v + FEES.tax); t.dataset.v = v + FEES.tax; } };
+  i.oninput = upd; upd(); if (!a0) i.focus();
+}
+// kept for the places that ask for a deposit when the wallet is short (joining, t-shirt, clearance)
+async function startDeposit(amount) { return transferBox(Math.max(0, Math.round(Number(amount) || 0))); }
+window.depositBox = (amount = '') => transferBox(amount);
+window.transferBox = transferBox;
+// where a transfer deposit stands, for members and admins
+const depBadge = d => {
+  const c = { pending: ['Being checked', 'bg-amber-50 text-amber-800 ring-amber-200'], successful: d.verified === 'auto' ? ['Credited', 'bg-emerald-50 text-emerald-800 ring-emerald-200'] : ['Credited', 'bg-emerald-50 text-emerald-800 ring-emerald-200'], failed: ['Rejected', 'bg-red-50 text-red-700 ring-red-200'], reversed: ['Reversed', 'bg-red-50 text-red-700 ring-red-200'] }[d.status] || [d.status, 'bg-slate-50 text-slate-600 ring-slate-200'];
+  return `<span class="inline-flex px-2 py-0.5 rounded-md text-xs font-medium ring-1 ring-inset ${c[1]}">${c[0]}</span>`;
 };
+// a protected receipt file needs a short-lived file token
+const receiptURL = async (d, thumb) => { const token = await pb.files.getToken(); return pb.files.getURL(d, d.receipt, Object.assign({ token }, thumb ? { thumb } : {})); };
+window.openReceipt = async (id) => { try { const d = await pb.collection('deposits').getOne(id); window.open(await receiptURL(d), '_blank', 'noopener'); } catch (x) { toast(x.message, 1); } };
 
 // Pays a fee (or joins a plan) from the member's wallet: the server decides the amount and checks the balance (see pb_hooks/wallet.js and fees.js).
 // body: { type: 'shirt' } | { type: 'join', plan } | { type: 'clearance', subscription, details }

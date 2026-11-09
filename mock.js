@@ -59,13 +59,14 @@ function createMockPB() {
     async authRefresh() { return { record: authStore.model }; },
     async authWithPassword(e, p) {
       const u = db.users.find(x => x.email === e && x.password === p); if (!u) throw new Error('Invalid email or password.');
+      if (u.suspended && u.role !== 'admin') throw new Error('Your account has been suspended: ' + (u.suspended_reason || '').replace(/[.!?\s]*$/, '') + '. Please contact customer care.');
       aid = u.id; ls.set('pocketbase_auth', JSON.stringify({ token: 'mock', model: { id: u.id, role: u.role } })); return { record: u };
     }
   });
   // ---- demo stand-in for the server's wallet routes (the real logic lives in pb_hooks/wallet.js) ----
   const post = (uidv, amount, kind, note, extra = {}) => {
     const u = db.users.find(x => x.id === uidv), bal = (u.wallet_balance || 0) + amount;
-    if (bal < 0) throw new Error('Not enough money in your wallet.');
+    if (bal < 0 && !extra.allowNegative) throw new Error('Not enough money in your wallet.'); delete extra.allowNegative;
     u.wallet_balance = bal; emit('users', 'update', u);
     const t = { id: uid(), created: now(), user: uidv, type: amount >= 0 ? 'credit' : 'debit', amount: Math.abs(amount), balance: bal, kind, note: note || '', ...extra };
     db.wallet_txs.push(t); emit('wallet_txs', 'create', t); return bal;
@@ -119,6 +120,47 @@ function createMockPB() {
     }
     if (path.endsWith('/wallet/verify')) { const d = (db.deposits || []).find(x => x.tx_ref === b.tx_ref); return d ? { status: d.status, amount: d.amount, fee: d.fee, total: d.total } : { status: 'pending' }; }
     if (path.endsWith('/code/check')) return codeState(b.code);
+    // ---- bank transfers with a receipt (demo: every receipt "matches" and is credited at once; the real check is in pb_hooks/transfers.js) ----
+    db.settings = db.settings || { bank_name: 'GTBank (demo)', account_number: '0123456789', account_name: 'Jessy James Helping Hands Foundation', transfer_note: '', auto_approve: true, auto_max: 200000, max_age_days: 2 };
+    db.deposits = db.deposits || [];
+    if (path.endsWith('/transfer/info')) return { ...db.settings, tax: 100, min: 100, auto: db.settings.auto_approve };
+    if (path.endsWith('/admin/settings')) { if (me.role !== 'admin') throw new Error('Admins only.'); if ((o.method || 'GET') === 'POST') { Object.assign(db.settings, b, { auto_max: +b.auto_max || 0, max_age_days: +b.max_age_days || 0 }); save(); } return { ...db.settings, ai: false }; }
+    if (path.endsWith('/api/jjhhf/transfer')) {
+      const amount = Math.round(+b.get('amount') || 0), file = b.get('receipt');
+      if (amount < 100) throw new Error('The smallest deposit is ₦100.'); if (!file || !file.size) throw new Error('Upload your payment receipt.');
+      const data = await new Promise(r => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(file); });
+      const today = new Date(Date.now() + 36e5).toISOString().slice(0, 10), ref = 'DEMO' + uid().toUpperCase();
+      const d = { id: uid(), created: now(), user: aid, amount, fee: 100, total: amount + 100, tx_ref: 'JJHHF-TRF-' + ref, status: 'successful', verified: 'auto', gateway: 'transfer', sender_name: b.get('sender_name') || '', receipt: file.name, receipt_data: data, receipt_ref: ref, check_note: 'Receipt checked automatically.',
+        check: { read: true, ai: { is_receipt: true, status: 'successful', amount: amount + 100, date: today, beneficiary_account_number: db.settings.account_number, beneficiary_account_name: db.settings.account_name, reference: ref, sender_name: b.get('sender_name') || '', looks_edited: false }, checks: { receipt: true, edited: true, amount: true, account: true, date: true, unique: true }, reasons: [] } };
+      db.deposits.push(d); emit('deposits', 'create', d);
+      post(aid, amount, 'topup', 'Bank transfer (receipt checked automatically)', { ref: 'TRANSFER-' + d.id });
+      const f = { id: uid(), created: now(), user: aid, type: 'tax', amount: 100, status: 'confirmed', note: 'Tax charge on deposit', tx_ref: d.tx_ref }; db.fees.push(f); emit('fees', 'create', f);
+      collect(aid); save(); return { status: 'successful', id: d.id, amount, message: n(amount) + ' has been added to your wallet (demo).' };
+    }
+    if (path.endsWith('/admin/transfer')) {
+      if (me.role !== 'admin') throw new Error('Admins only.');
+      const d = db.deposits.find(x => x.id === b.id); if (!d) throw new Error('Deposit not found.'); const stamp = () => { d.reviewed_by = aid; d.reviewed_at = now(); };
+      if (b.action === 'approve') { if (d.status !== 'pending' && d.status !== 'failed') throw new Error('Only a waiting or rejected receipt can be approved.'); post(d.user, d.amount, 'topup', 'Bank transfer (approved by admin)', { ref: 'TRANSFER-' + d.id }); d.status = 'successful'; d.verified = 'admin'; d.check_note = b.note || 'Approved by admin.'; stamp(); collect(d.user); }
+      else if (b.action === 'reject') { if (d.status !== 'pending') throw new Error('Only a waiting receipt can be rejected.'); d.status = 'failed'; d.check_note = b.note || 'Rejected'; stamp(); }
+      else if (b.action === 'confirm') { d.verified = 'admin'; stamp(); }
+      else if (b.action === 'reverse') { if (d.status !== 'successful') throw new Error('Only a credited deposit can be reversed.'); post(d.user, -d.amount, 'reversal', 'Deposit reversed by admin · ' + (b.note || ''), { allowNegative: true }); d.status = 'reversed'; d.check_note = b.note || 'Reversed'; stamp(); }
+      emit('deposits', 'update', d); save(); return { status: d.status, balance: db.users.find(u => u.id === d.user).wallet_balance };
+    }
+    if (path.endsWith('/admin/suspend')) {
+      if (me.role !== 'admin') throw new Error('Admins only.'); const u = db.users.find(x => x.id === b.user);
+      if (u.role === 'admin') throw new Error('An admin account cannot be suspended.'); if (b.suspended && !b.reason) throw new Error('Give a reason.');
+      Object.assign(u, { suspended: !!b.suspended, suspended_reason: b.suspended ? b.reason : '', suspended_at: b.suspended ? now() : '' }); emit('users', 'update', u); save(); return { suspended: u.suspended };
+    }
+    if (path.endsWith('/admin/import-plan')) {
+      if (me.role !== 'admin') throw new Error('Admins only.');
+      const pl = db.plans.find(p => p.id === b.plan), days = Math.floor(+b.days || 0), paid = Math.round(+b.amount_paid || 0), k = paid / pl.amount;
+      if (!Number.isInteger(k) || k < 0) throw new Error('Amount paid must be a multiple of the contribution, ' + n(pl.amount) + '.');
+      const L = new Date(Date.now() + 36e5), start = new Date(Date.UTC(L.getUTCFullYear(), L.getUTCMonth(), L.getUTCDate() - days, 8) - 36e5);
+      const s = { id: uid(), created: start.toISOString().replace('T', ' '), user: b.user, plan: pl.id, status: 'active', imported: true, import_note: b.note || 'Brought over from manual records' }; giveCode(s, pl);
+      db.subscriptions.push(s); emit('subscriptions', 'create', s);
+      if (k) { const p = { id: uid(), created: now(), user: b.user, subscription: s.id, amount: paid, penalty: 0, installments: k, late_count: 0, note: 'Brought over from manual records · ' + k + ' payments', status: 'confirmed' }; db.payments.push(p); emit('payments', 'create', p); }
+      const before = db.payments.length; collect(b.user); save(); return { subscription: s.id, paid: k, payments: sched(s, pl).n, collected: db.payments.length - before };
+    }
     if (path.endsWith('/admin/code-status')) {
       if (me.role !== 'admin') throw new Error('Admins only.');
       const r = db.subscriptions.find(x => x.id === b.subscription); if (!r || !r.code) throw new Error('Plan code not found.');
@@ -185,5 +227,7 @@ function createMockPB() {
     return { status: 'confirmed' };
   };
   const filter = (expr, params = {}) => expr.replace(/\{:(\w+)\}/g, (_, k) => JSON.stringify(String(params[k] ?? '')));   // same as pb.filter (the demo ignores complex filters)
-  return { collection: col, authStore, send, filter };
+  // protected receipt files: the demo keeps them as data URLs on the record
+  const files = { getToken: async () => 'demo', getURL: (r, name) => (r && r.receipt_data) || '' };
+  return { collection: col, authStore, send, filter, files };
 }

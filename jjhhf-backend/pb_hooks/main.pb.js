@@ -22,10 +22,25 @@ onRecordAfterCreateSuccess((e) => {
   try { require(`${__hooks}/gateways.js`).assign(e.app, e.record.id); } catch (err) { console.log("jjhhf gateway assign:", e.record.id, String(err)); }
 }, "users");
 
+// ---- suspended accounts ----
+// A suspended member cannot sign in, and every request made with an existing session is refused with the reason.
+onRecordAuthRequest((e) => {
+  if (e.record.getBool("suspended") && e.record.getString("role") !== "admin")
+    throw new ForbiddenError("Your account has been suspended" + (e.record.getString("suspended_reason") ? ": " + e.record.getString("suspended_reason").replace(/[.!?\s]*$/, "") + "." : ".") + " Please contact customer care.");
+  e.next();
+}, "users");
+routerUse((e) => {
+  const a = e.auth;
+  if (a && a.collection().name === "users" && a.getBool("suspended") && a.getString("role") !== "admin")
+    throw new ForbiddenError("Your account has been suspended" + (a.getString("suspended_reason") ? ": " + a.getString("suspended_reason").replace(/[.!?\s]*$/, "") + "." : ".") + " Please contact customer care.");
+  return e.next();
+});
+
 // Wallet fields can only be changed by the server (top-ups, fees, collections), never through the API, not even by an admin.
 onRecordUpdateRequest((e) => {
   if (e.hasSuperuserAuth()) return e.next();
   const o = e.record.original();
+  for (const f of ["suspended", "suspended_reason", "suspended_at"]) if (e.record.get(f) + "" !== o.get(f) + "") throw new BadRequestError("That field cannot be changed.");   // admin route only
   for (const f of ["wallet_balance", "va_number", "va_bank", "va_ref"]) {
     if (f === "wallet_balance" ? e.record.getFloat(f) !== o.getFloat(f) : e.record.getString(f) !== o.getString(f)) throw new BadRequestError("That field cannot be changed.");
   }
