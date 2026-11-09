@@ -19,7 +19,7 @@ routerAdd("POST", "/api/jjhhf/wallet/verify", (e) => {
   return e.json(200, { status, amount: x.getFloat("amount"), fee: x.getFloat("fee"), total: x.getFloat("total"), note: x.getString("note") });
 }, $apis.requireAuth());
 
-// 2b) Webhook: Flutterwave calls this when a payment completes, even if the member closed the page before coming back.
+// 2b) Flutterwave webhook: called when a payment completes, even if the member closed the page before coming back.
 //     The body is never trusted: we check the signature, then settle() asks Flutterwave to verify the transaction.
 routerAdd("POST", "/api/jjhhf/flw-webhook", (e) => {
   const F = require(`${__hooks}/flutterwave.js`), D = require(`${__hooks}/deposits.js`);
@@ -30,6 +30,36 @@ routerAdd("POST", "/api/jjhhf/flw-webhook", (e) => {
   if (body.event !== "charge.completed" || !d.id || typeof d.tx_ref !== "string" || !d.tx_ref.startsWith("JJHHF-DEP-")) return e.json(200, { ok: true });
   try { D.settle(d.tx_ref, String(d.id)); }
   catch (err) { if (String(err).includes("Deposit not found")) return e.json(200, { ok: true }); throw err; }   // other errors -> Flutterwave retries later
+  return e.json(200, { ok: true });
+});
+
+// 2c) Paystack webhook (charge.success). The signature (HMAC-SHA512 of the raw body with the secret key) is checked, and settle()
+//     then asks Paystack itself about the payment, so a forged call can never credit a wallet.
+routerAdd("POST", "/api/jjhhf/paystack-webhook", (e) => {
+  const D = require(`${__hooks}/deposits.js`);
+  let raw = ""; try { raw = readerToString(e.request.body); } catch (_) { }
+  const secret = $os.getenv("PAYSTACK_SECRET_KEY"), sig = e.request.header.get("x-paystack-signature") || "";
+  if (!secret || !raw || !$security.equal(sig, $security.hs512(raw, secret))) return e.json(401, { message: "Invalid signature" });
+  let body = {}; try { body = JSON.parse(raw); } catch (_) { return e.json(400, { message: "Bad body" }); }
+  const ref = body.data && body.data.reference;
+  if (body.event !== "charge.success" || typeof ref !== "string" || !ref.startsWith("JJHHF-DEP-")) return e.json(200, { ok: true });
+  try { D.settle(ref, ""); } catch (err) { if (String(err).includes("Deposit not found")) return e.json(200, { ok: true }); throw err; }
+  return e.json(200, { ok: true });
+});
+
+// 2d) Monnify webhook (SUCCESSFUL_TRANSACTION). Production webhooks carry "monnify-signature" (HMAC-SHA512 of the raw body with the
+//     secret key); a wrong signature is rejected. Sandbox webhooks have no signature, which is safe because settle() always asks
+//     Monnify itself about the payment before crediting anything.
+routerAdd("POST", "/api/jjhhf/monnify-webhook", (e) => {
+  const D = require(`${__hooks}/deposits.js`);
+  let raw = ""; try { raw = readerToString(e.request.body); } catch (_) { }
+  const secret = $os.getenv("MONNIFY_SECRET_KEY"), sig = e.request.header.get("monnify-signature") || "";
+  if (!secret || !raw) return e.json(401, { message: "Not configured" });
+  if (sig && !$security.equal(sig.toLowerCase(), $security.hs512(raw, secret).toLowerCase())) return e.json(401, { message: "Invalid signature" });
+  let body = {}; try { body = JSON.parse(raw); } catch (_) { return e.json(400, { message: "Bad body" }); }
+  const ref = body.eventData && body.eventData.paymentReference;
+  if (body.eventType !== "SUCCESSFUL_TRANSACTION" || typeof ref !== "string" || !ref.startsWith("JJHHF-DEP-")) return e.json(200, { ok: true });
+  try { D.settle(ref, ""); } catch (err) { if (String(err).includes("Deposit not found")) return e.json(200, { ok: true }); throw err; }
   return e.json(200, { ok: true });
 });
 
@@ -95,11 +125,12 @@ routerAdd("GET", "/api/jjhhf/admin/stats", (e) => {
   const tu = one("SELECT COUNT(*) AS n, COALESCE(SUM([[amount]]), 0) AS total FROM {{wallet_txs}} WHERE [[kind]] = 'topup'", { n: 0, total: -0 });
   const dp = one("SELECT COALESCE(SUM(CASE WHEN [[status]] = 'successful' THEN 1 ELSE 0 END), 0) AS ok, COALESCE(SUM(CASE WHEN [[status]] = 'successful' THEN [[amount]] ELSE 0 END), 0) AS total, COALESCE(SUM(CASE WHEN [[status]] = 'pending' THEN 1 ELSE 0 END), 0) AS pending FROM {{deposits}}", { ok: 0, total: -0, pending: 0 });
   const tx = one("SELECT COALESCE(SUM([[amount]]), 0) AS tax FROM {{fees}} WHERE [[status]] = 'confirmed' AND [[type]] = 'tax'", { tax: -0 });
+  const byGw = {}; ["flutterwave", "paystack", "monnify"].forEach(g => { const r = one("SELECT COUNT(*) AS n, COALESCE(SUM([[amount]]), 0) AS total FROM {{deposits}} WHERE [[status]] = 'successful' AND [[gateway]] = '" + g + "'", { n: 0, total: -0 }); byGw[g] = { n: r.n, total: r.total }; });
   const cd = one("SELECT COALESCE(SUM(CASE WHEN [[code_used_at]] != '' THEN 1 ELSE 0 END), 0) AS used, COALESCE(SUM(CASE WHEN [[code]] != '' AND [[code_used_at]] = '' AND [[code_from]] <= {:now} AND [[code_until]] > {:now} THEN 1 ELSE 0 END), 0) AS open FROM {{subscriptions}}".replace(/\{:now\}/g, "'" + new Date().toISOString().replace("T", " ") + "'"), { used: 0, open: 0 });
   return e.json(200, {
     users: all.users, members: u.members, registered: u.registered, unregistered: u.members - u.registered, withAccount: u.withAccount, admins: all.users - u.members,
     held: all.held, subscriptions: s.n, activeSubscriptions: s.active, pendingPayments: p.pending, confirmedTotal: p.confirmed, penalties: p.penalties,
-    fees: f.fees - tx.tax, tax: tx.tax, deposits: dp.ok, depositTotal: dp.total, pendingDeposits: dp.pending, codesUsed: cd.used, codesOpen: cd.open, pendingPayouts: po.pending, plans: pl.n, topups: tu.n, topupTotal: tu.total,
+    fees: f.fees - tx.tax, tax: tx.tax, deposits: dp.ok, depositTotal: dp.total, pendingDeposits: dp.pending, codesUsed: cd.used, codesOpen: cd.open, byGateway: byGw, gateways: require(`${__hooks}/gateways.js`).enabled(), pendingPayouts: po.pending, plans: pl.n, topups: tu.n, topupTotal: tu.total,
   });
 }, $apis.requireAuth());
 

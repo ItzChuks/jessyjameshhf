@@ -39,7 +39,7 @@ function payoutProblem(app, uid, sid) {
   if (saved < pl.amount * R.sched(sub, pl).n) return "This plan is not fully paid yet.";
 
   const end = R.termEnd(sub, pl);
-  if (new Date() < end) return "Payouts open when your saving period ends, on " + end.toISOString().slice(0, 10) + ".";
+  if (new Date() < end) { const l = new Date(end.getTime() + 36e5); return "Payouts for this plan open on " + l.getUTCDate() + "/" + (l.getUTCMonth() + 1) + "/" + l.getUTCFullYear() + "."; }
 
   if (app.findRecordsByFilter("payouts", "subscription = {:s} && status = 'confirmed'", "", 1, 0, { s: sid }).length) return "This plan has already been paid out.";
   if (app.findRecordsByFilter("payouts", "subscription = {:s} && status = 'pending'", "", 1, 0, { s: sid }).length) return "You already have a payout request waiting.";

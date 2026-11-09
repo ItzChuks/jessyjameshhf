@@ -44,10 +44,24 @@ function seasonYear(freq, joined) {
   const y = toL(joined).getUTCFullYear();
   return dueAt(freq, seasonFirst(freq, y), seasonCount(freq, y) - 1) > joined ? y : y + 1;
 }
+// ---- joining-day schedule (grocery plans): the first payment is due on the day the member joins (Lagos calendar), then every
+//      7 days for weekly plans (every day for daily plans) counted from that day. A payment may be collected from the start of its
+//      due day and is late if still unpaid at 12:00 noon that day (RULES.cutoffHour). The first payment is taken when the member
+//      joins, so it is never late. Example, 4 weekly payments, joined on day 1: due days 1, 8, 15 and 22.
+const STEP = { daily: 1, weekly: 7 };
+function joinDay(joined) { const L = toL(parseTs(joined)); return [L.getUTCFullYear(), L.getUTCMonth(), L.getUTCDate()]; }
+function dayStart(joined, k, h = 0) { const [y, m, d] = joinDay(joined); return fromL(y, m, d + k, h); }   // day k after joining (k = 0: joining day), at hour h
+function joinSched(sub, pl) {
+  const step = STEP[pl.frequency] || 7, j = sub.created;
+  return { first: dayStart(j, 1), n: pl.duration, step, due: i => i === 0 ? dayStart(j, 1) : dayStart(j, i * step, RULES.cutoffHour), opens: i => dayStart(j, i * step) };
+}
+// payouts open this many days after joining (set per plan; e.g. 30 for a 4-week plan). Default: the day after the last payment's day.
+const payoutDays = (pl) => pl.payout_after_days > 0 ? pl.payout_after_days : (pl.duration - 1) * (STEP[pl.frequency] || 7) + 1;
+
 // the schedule of one subscription: { first, n (number of instalments), due(i) }
 function sched(sub, pl) {
   const f = pl.frequency, joined = parseTs(sub.created);
-  if (!isSeasonal(pl)) { const first = firstDue(f, joined); return { first, n: pl.duration, due: i => dueAt(f, first, i) }; }
+  if (!isSeasonal(pl)) return joinSched(sub, pl);
   const y = seasonYear(f, joined), first = seasonFirst(f, y);
   return { first, n: seasonCount(f, y), due: i => dueAt(f, first, i), season: y };
 }
@@ -64,6 +78,7 @@ function collectFrom(freq, due) {
 
 // the moment instalment i becomes collectable for a subscription (never before the season's 1 January)
 function collectAt(sub, pl, i) {
+  if (!isSeasonal(pl)) return joinSched(sub, pl).opens(i);
   const S = sched(sub, pl), t = collectFrom(pl.frequency, S.due(i));
   if (!S.season) return t;
   const start = fromL(S.season, 0, 1, 0);
@@ -81,8 +96,9 @@ function planState(sub, pl, pays, now = new Date()) {
   return stateFromPaid(sub, pl, paid, now);
 }
 
-// when a plan's saving period ends = the deadline of its last instalment (payouts open after this moment)
-const termEnd = (sub, pl) => { const S = sched(sub, pl); return S.due(S.n - 1); };
+// when a plan's saving period ends and payouts open: "payout_after_days" days after the joining day (grocery plans);
+// for older seasonal plans, the deadline of the last instalment
+const termEnd = (sub, pl) => { if (!isSeasonal(pl)) return dayStart(sub.created, payoutDays(pl)); const S = sched(sub, pl); return S.due(S.n - 1); };
 // ---- plan codes: the code a member gets on joining can be used from the start of day "fromDay" to the end of day "untilDay"
 //      after joining (day 1 = the day they join, Lagos calendar). Returns null when the plan has no code days set.
 function codeWindow(joined, fromDay, untilDay) {
@@ -94,6 +110,6 @@ function codeWindow(joined, fromDay, untilDay) {
 const PAYOUT_MIN_RUNNING_DAYS = 14;
 
 // plain object from a PocketBase plan record
-const planObj = r => ({ amount: r.getFloat("amount"), duration: r.getInt("duration"), frequency: r.getString("frequency"), category: r.getString("category"), name: r.getString("name") });
+const planObj = r => ({ amount: r.getFloat("amount"), duration: r.getInt("duration"), frequency: r.getString("frequency"), category: r.getString("category"), name: r.getString("name"), payout_after_days: r.getInt("payout_after_days") });
 
-module.exports = { codeWindow, PAYOUT_MIN_RUNNING_DAYS, RULES, parseTs, isSeasonal, sched, catchupCount, collectFrom, collectAt, stateFromPaid, planState, termEnd, planObj, instOf, seasonCount, seasonYear, seasonFirst, dueAt };
+module.exports = { payoutDays, codeWindow, PAYOUT_MIN_RUNNING_DAYS, RULES, parseTs, isSeasonal, sched, catchupCount, collectFrom, collectAt, stateFromPaid, planState, termEnd, planObj, instOf, seasonCount, seasonYear, seasonFirst, dueAt };

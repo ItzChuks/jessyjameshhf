@@ -151,9 +151,10 @@ function joinPlan(app, uid, planId, code) {
   const win = R.codeWindow(sub.getString("created"), plan.getInt("code_from_day"), plan.getInt("code_until_day"));
   if (win) { sub.set("code", newCode(app)); sub.set("code_from", ts(win.from)); sub.set("code_until", ts(win.until)); app.save(sub); }
   const s = { id: sub.id, created: sub.getString("created") };
-  const c = R.catchupCount(s, pl), catchup = c * pl.amount, total = FEES.join + catchup, bal = balanceOf(app, uid);
+  // joining = the joining fee + the first payment (due today), all or nothing
+  const c = R.catchupCount(s, pl), catchup = c * pl.amount, first = R.isSeasonal(pl) ? 0 : pl.amount, total = FEES.join + catchup + first, bal = balanceOf(app, uid);
   if (bal < total) {
-    throw new BadRequestError("Your wallet needs " + naira(total) + " to join this plan (joining fee " + naira(FEES.join) + (c ? " + catch-up " + naira(catchup) + " for " + c + " instalment" + (c === 1 ? "" : "s") + " since the season began" : "") + "). You have " + naira(bal) + ". Please top up " + naira(total - bal) + ".");
+    throw new BadRequestError("Your wallet needs " + naira(total) + " to join this plan (joining fee " + naira(FEES.join) + (first ? " + first payment " + naira(first) : "") + (c ? " + catch-up " + naira(catchup) + " for " + c + " instalment" + (c === 1 ? "" : "s") + " since the season began" : "") + "). You have " + naira(bal) + ". Please deposit " + naira(total - bal) + ".");
   }
   post(app, uid, -FEES.join, "join", "Joining fee · " + pl.name, { plan: plan.id, subscription: sub.id });
   const fee = new Record(app.findCollectionByNameOrId("fees"));

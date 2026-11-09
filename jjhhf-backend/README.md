@@ -9,11 +9,12 @@ PocketBase for Jessy James Helping Hands Foundation. Tested with PocketBase **v0
 3. **Add a Volume** to the service, mount path `/pb/pb_data` (otherwise the database is wiped on every redeploy).
 4. Settings > Networking > **Generate Domain**. Copy the URL (e.g. `https://jjhhf-backend-production.up.railway.app`).
 5. Open `https://<your-domain>/_/` and create the superuser (Railway logs show a one-time setup link on first start).
-6. Variables (for wallet deposits through Flutterwave Checkout):
-   - `FLW_SECRET_KEY`: Flutterwave > Settings > API keys (use the test key first)
-   - `FLW_WEBHOOK_HASH`: any long random string; put the same value in Flutterwave > Settings > Webhooks as the **Secret hash**
-   - Flutterwave webhook URL: `https://<your-domain>/api/jjhhf/flw-webhook`, with "Receive webhook for successful charges" on.
-     (Members are credited when they return from the payment page; the webhook covers anyone who closes the page early.)
+6. Variables for payments (Railway > Variables). Set the providers you want to use; each member is given one of the configured ones at random on their first deposit and keeps it (an admin can switch a member in Admin > Users > member > Payment partner). Use test keys first.
+   - **Flutterwave:** `FLW_SECRET_KEY`, `FLW_WEBHOOK_HASH` (any long random string, also entered as the Secret hash in Flutterwave > Settings > Webhooks). Webhook URL: `https://<your-domain>/api/jjhhf/flw-webhook`
+   - **Paystack:** `PAYSTACK_SECRET_KEY` (sk_test_… / sk_live_…). Webhook URL (Paystack > Settings > API Keys & Webhooks): `https://<your-domain>/api/jjhhf/paystack-webhook`
+   - **Monnify:** `MONNIFY_API_KEY`, `MONNIFY_SECRET_KEY`, `MONNIFY_CONTRACT_CODE`, and `MONNIFY_BASE_URL` = `https://sandbox.monnify.com` while testing (leave it out for live, which uses `https://api.monnify.com`). Webhook URL (Monnify > Developer > Webhook URLs, transaction completion): `https://<your-domain>/api/jjhhf/monnify-webhook`
+   - Optional `GATEWAYS`, e.g. `paystack,monnify`, to use only some of the configured providers.
+   Members are credited when they return from the payment page; the webhooks cover anyone who closes the page early, and pending deposits are re-checked every 10 minutes.
 7. Settings > Application (in the PocketBase panel): set the app name and URL; optionally restrict allowed origins to your website domain.
 
 Migrations run automatically on start and create every collection and rule.
@@ -26,11 +27,12 @@ Sign up on the website, then in the PocketBase panel open **users**, edit yourse
 
 - `pb_migrations/`: users fields, plans, subscriptions, payments, payouts, fees, wallet ledger (`wallet_txs`); `1760000005_public_plans.js` lets the public homepage list open plans.
 - `pb_hooks/main.pb.js`: sign-up rules (terms required, always `role = user`), wallet fields locked, plan joining and payout guards.
-- `pb_hooks/deposits.js`: deposits through Flutterwave Checkout. The member pays amount + **₦100 tax charge**; the wallet gets the amount, the ₦100 is recorded as a `tax` fee. Each deposit is credited exactly once.
+- `pb_hooks/gateways.js`: Flutterwave, Paystack and Monnify checkout + verification, and the random per-member assignment.
+- `pb_hooks/deposits.js`: deposits through the member's provider. The member pays amount + **₦100 tax charge**; the wallet gets the amount, the ₦100 is recorded as a `tax` fee. Each deposit is credited exactly once.
 - `pb_hooks/wallet.js`, `wallet.pb.js`: wallet ledger, automatic collection, joining a plan, plan codes. Routes:
   - `POST /api/jjhhf/wallet/deposit` start a deposit, returns the Flutterwave Checkout link
   - `POST /api/jjhhf/wallet/verify` settle a deposit when the member returns (the server asks Flutterwave itself)
-  - `POST /api/jjhhf/flw-webhook` payment completed (signature checked, then verified with Flutterwave)
+  - `POST /api/jjhhf/flw-webhook`, `/paystack-webhook`, `/monnify-webhook` payment completed (signature checked, then verified with the provider)
   - `POST /api/jjhhf/wallet/credit` admin manual credit (unique reference)
   - `POST /api/jjhhf/fee/pay` joining fee (with optional plan code), t-shirt fee, payout clearance fee
   - `POST /api/jjhhf/code/check` is this plan code valid / used / expired / not open yet
@@ -56,8 +58,9 @@ Sign up on the website, then in the PocketBase panel open **users**, edit yourse
 
 - **Plans:** Grocery only, 4, 8, 12 or 25 weeks (admin can type any length), daily or weekly contributions, running from the day of joining. (Migration `1760000007` hides any old Cash/Foodie plans; existing memberships keep working.)
 - **Plan codes:** every membership gets a code (`JJ-XXXX-XXXX`). It is usable from day `code_from_day` to the end of day `code_until_day` after joining (set per plan; day 1 = joining day). Any member can enter it, once, when joining a plan; it is then marked used (who and when). Unused codes become expired.
-- **Deposits:** through Flutterwave Checkout, no BVN/NIN. ₦100 tax charge per deposit, added at checkout.
-- **Deadlines** (Lagos time): daily before 12:00 noon, weekly Friday 12:00 noon. Late = double; the penalty never counts as savings.
+- **Deposits:** through the member's provider (Flutterwave, Paystack or Monnify, shuffled per member), no BVN/NIN. ₦100 tax charge per deposit, added at checkout.
+- **Schedule** (Lagos time): the first payment is taken on the joining day together with the joining fee; then every 7 days from that day (weekly) or every day (daily). Each payment is taken from midnight on its due day and must be paid **before 12:00 noon**; still unpaid at noon, it costs double. The penalty never counts as savings.
+- **Payout date:** `plans.payout_after_days` (e.g. 30 for a 4-week plan; migration `1760000009` sets weeks × 7.5 on existing plans).
 - **Fees** from the wallet: joining ₦3,000 per plan, t-shirt ₦5,000 once (only needed for payouts), clearance ₦3,000 per payout request.
 - **Payout:** plan fully paid, its length ended, **another plan active and running for at least 2 weeks**, t-shirt fee paid, and **payout details saved on the Profile** (account name, bank, 10-digit account number, address; migration `1760000008`). The request stores a copy of those details; the admin sees them on Payouts and on the member page.
 

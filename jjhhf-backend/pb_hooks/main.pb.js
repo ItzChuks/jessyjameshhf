@@ -22,6 +22,11 @@ onRecordUpdateRequest((e) => {
   for (const f of ["wallet_balance", "va_number", "va_bank", "va_ref"]) {
     if (f === "wallet_balance" ? e.record.getFloat(f) !== o.getFloat(f) : e.record.getString(f) !== o.getString(f)) throw new BadRequestError("That field cannot be changed.");
   }
+  // the payment provider is given by the server (or changed by an admin), never chosen by the member
+  if (e.record.getString("gateway") !== o.getString("gateway")) {
+    if (!e.auth || e.auth.getString("role") !== "admin") throw new BadRequestError("That field cannot be changed.");
+    if (e.record.getString("gateway") && !["flutterwave", "paystack", "monnify"].includes(e.record.getString("gateway"))) throw new BadRequestError("Unknown payment provider.");
+  }
   // payout details from the Profile page: tidy them and check the account number
   const acct = e.record.getString("bank_account_number").replace(/\D/g, "");
   if (e.record.getString("bank_account_number") && acct.length !== 10) throw new BadRequestError("Enter your 10-digit account number.");

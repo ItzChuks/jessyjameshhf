@@ -1,5 +1,5 @@
 // ===== CONFIG (edit these) =====
-const PB_URL = 'https://jessyjameshhf-production.up.railway.app';   // your PocketBase on Railway (no trailing slash)
+const PB_URL = 'https://YOUR-POCKETBASE-SERVICE.up.railway.app';   // your PocketBase on Railway (no trailing slash)
 const USE_MOCK = false; // false = real PocketBase (default). true = offline demo using localStorage + mock.js.
 const BRAND = 'Jessy James Helping Hands Foundation';   // full name (invoices, terms, page titles)
 const BRAND_SHORT = 'JJHHF';                            // short name (sidebar, small screens)
@@ -103,7 +103,9 @@ const fromL = (y, m, d, h = 0, mi = 0, s = 0) => new Date(Date.UTC(y, m, d, h, m
 const parseTs = s => { if (s instanceof Date) return s; const t = String(s).trim().replace(' ', 'T'); return new Date(/(Z|[+-]\d\d:?\d\d)$/.test(t) ? t : t + 'Z'); };
 const unit = (n, f) => FQ[f] + (n === 1 ? '' : 's');
 const plural = (n, f) => n + ' ' + unit(n, f);
-const fmtDue = (f, d) => !d ? 'Fully paid' : d.toLocaleDateString('en-GB', { timeZone: 'Africa/Lagos', weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }) + (f === 'monthly' ? ' (end of day)' : ', ' + RULES.cutoffHour + ':00 noon');
+// a deadline at 12:00 is shown as "before 12:00 noon" on that day; a midnight deadline (the joining-day payment) as "by end of" the day before
+const fmtDue = (f, d) => { if (!d) return 'Fully paid'; const o = { timeZone: 'Africa/Lagos', weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }, noon = toL(d).getUTCHours() === RULES.cutoffHour;
+  return noon ? d.toLocaleDateString('en-GB', o) + ', before ' + RULES.cutoffHour + ':00 noon' : new Date(d.getTime() - 1).toLocaleDateString('en-GB', o) + ', by end of day'; };
 
 // deadline of the very first instalment, from the moment the user joined
 function firstDue(freq, joined) {
@@ -136,10 +138,18 @@ function seasonCount(freq, y) {
 }
 // the season someone joining at "joined" belongs to: this year's, unless every instalment of it is already due
 const seasonYear = (freq, joined) => { const y = toL(joined).getUTCFullYear(); return dueAt(freq, seasonFirst(freq, y), seasonCount(freq, y) - 1) > joined ? y : y + 1; };
+// ---- joining-day schedule (grocery plans), same as pb_hooks/rules.js: the first payment is due on the day the member joins,
+//      then every 7 days (weekly) or every day (daily) counted from that day. A payment can be taken from the start of its due day
+//      and is late if still unpaid at 12:00 noon that day (the first payment is taken on joining, so never late).
+//      Payouts open "payout_after_days" days after joining (e.g. 30 for a 4-week plan).
+const STEP = { daily: 1, weekly: 7 };
+const dayStart = (joined, k, h = 0) => { const L = toL(parseTs(joined)); return fromL(L.getUTCFullYear(), L.getUTCMonth(), L.getUTCDate() + k, h); };
+const joinSched = (sub, pl) => { const step = STEP[pl.frequency] || 7, j = sub.created; return { first: dayStart(j, 1), n: pl.duration, step, due: i => i === 0 ? dayStart(j, 1) : dayStart(j, i * step, RULES.cutoffHour), opens: i => dayStart(j, i * step) }; };
+const payoutDays = pl => pl.payout_after_days > 0 ? pl.payout_after_days : (pl.duration - 1) * (STEP[pl.frequency] || 7) + 1;
 // the schedule of one subscription: { first, n (number of instalments), due(i), season? }
 function sched(sub, pl) {
   const f = pl.frequency, joined = parseTs(sub.created);
-  if (!isSeasonal(pl)) { const first = firstDue(f, joined); return { first, n: pl.duration, due: i => dueAt(f, first, i) }; }
+  if (!isSeasonal(pl)) return joinSched(sub, pl);
   const y = seasonYear(f, joined), first = seasonFirst(f, y);
   return { first, n: seasonCount(f, y), due: i => dueAt(f, first, i), season: y };
 }
@@ -152,13 +162,14 @@ const totalOf = p => p.amount * nPay(p);
 const payoutOf = p => isSeasonal(p) ? totalOf(p) : p.payout;
 // when an instalment becomes collectable from the wallet: from the start of its period (daily: midnight, weekly: Monday, monthly: the 1st), never before the season starts
 function collectAt(sub, pl, i) {
+  if (!isSeasonal(pl)) return joinSched(sub, pl).opens(i);
   const S = sched(sub, pl), L = toL(S.due(i)), y = L.getUTCFullYear(), m = L.getUTCMonth(), d = L.getUTCDate();
   const t = pl.frequency === 'daily' ? fromL(y, m, d, 0) : pl.frequency === 'weekly' ? fromL(y, m, d - 4, 0) : fromL(y, m, 1, 0);
   if (!S.season) return t;
   const start = fromL(S.season, 0, 1, 0); return t < start ? start : t;
 }
 // when the saving period ends = deadline of the last instalment; payouts open after this moment
-const termEnd = (sub, pl) => { const S = sched(sub, pl); return S.due(S.n - 1); };
+const termEnd = (sub, pl) => { if (!isSeasonal(pl)) return dayStart(sub.created, payoutDays(pl)); const S = sched(sub, pl); return S.due(S.n - 1); };
 const PAYOUT_MIN_DAYS = 14;   // the other running plan must have been joined at least this long ago (pb_hooks/rules.js)
 const PAYOUT_NEEDS_PLAN = 'To request a payout you must have another plan that has been actively running for at least 2 weeks. Join a new plan and request this payout once it has run for 2 weeks.';
 // the member's OTHER plans that are still running: active, saving period not ended, and joined at least 2 weeks ago (plOf gives a subscription's plan)
@@ -194,7 +205,7 @@ const covers = p => { const pl = p.expand?.subscription?.expand?.plan || {}; ret
 const feeRulesHTML = () => {
   const c = (t, d) => `<div class="bg-white border rounded-xl p-5"><h3 class="font-semibold text-slate-900 text-sm">${t}</h3><p class="text-sm text-slate-600 mt-1.5 leading-relaxed">${d}</p></div>`;
   return '<div class="grid md:grid-cols-2 gap-4 max-w-4xl">'
-    + c('Your wallet', `Every member has a <b>wallet</b> on the dashboard. Open <b>Wallet</b>, enter an amount and pay with <b>Flutterwave</b> (card, bank transfer or USSD). No BVN or NIN is needed. Your wallet is credited as soon as the payment is confirmed, and every fee and contribution is taken from it.`)
+    + c('Your wallet', `Every member has a <b>wallet</b> on the dashboard. Open <b>Wallet</b>, enter an amount and pay online through our payment partner (<b>Flutterwave, Paystack or Monnify</b>; card, bank transfer or USSD). No BVN or NIN is needed. Your wallet is credited as soon as the payment is confirmed, and every fee and contribution is taken from it.`)
     + c(`Tax charge · ${naira(FEES.tax)} per deposit`, `Every payment into your wallet carries a <b>${naira(FEES.tax)} tax charge</b>, added at checkout. To put ${naira(3000)} in your wallet you pay <b>${naira(3000 + FEES.tax)}</b>; your wallet receives the full ${naira(3000)}.`)
     + c(`Joining fee · ${naira(FEES.join)}`, `Taken from your wallet each time you join a plan, separately from your contributions. If your wallet is short, you are asked to deposit the difference first.`)
     + c('Plan codes', `Every plan you join gives you a <b>plan code</b>. It becomes usable on a set day after you join and expires on a later day (both shown on the plan). Use it, or share it with someone else, in the optional <b>Plan code</b> box when joining a new plan. A code works <b>once only</b>; after that it shows as used, with who used it. An unused code shows as expired after its last day.`)
@@ -208,12 +219,12 @@ const termsHTML = () => {
   const m = RULES.lateMultiplier, S = (n, t, body) => `<section class="bg-white border rounded-xl p-5 sm:p-6"><h2 class="font-semibold text-slate-900">${n}. ${t}</h2><div class="text-sm text-slate-600 mt-2 leading-relaxed space-y-2">${body}</div></section>`;
   return '<div class="space-y-4">'
     + S(1, 'About these terms', `<p>${BRAND} is a community savings foundation where members contribute daily or weekly towards a grocery payout. By creating an account you confirm that you have read, understood and accepted these Terms and Conditions, including every fee listed below.</p>`)
-    + S(2, 'Your wallet and deposits', `<p>Every member has a <b>wallet</b> on their dashboard. You fund it from the Wallet page by paying through <b>Flutterwave</b> (card, bank transfer or USSD). No BVN or NIN is required. Your wallet is credited once Flutterwave confirms the payment, usually within moments.</p><p>Every deposit carries a <b>tax charge of ${naira(FEES.tax)}</b>, added to the amount you pay at checkout (for example, to deposit ${naira(3000)} you pay ${naira(3000 + FEES.tax)}). The tax charge is not added to your wallet and is not refundable.</p><p>All fees and contributions are paid <b>from your wallet</b>. Money in your wallet stays yours until a fee or contribution is taken from it under these terms.</p>`)
-    + S(3, 'Plans', `<p>We offer <b>Grocery plans</b> of <b>4, 8, 12 and 25 weeks</b>. Every plan shows its contribution amount, how often you pay (daily or weekly), its length, the number of payments and the payout. A plan runs from the day you join.</p><p>A joining fee of <b>${naira(FEES.join)}</b> is taken from your wallet each time you join a plan, separately from your contributions.</p>`)
+    + S(2, 'Your wallet and deposits', `<p>Every member has a <b>wallet</b> on their dashboard. You fund it from the Wallet page by paying online through one of our payment partners, <b>Flutterwave, Paystack or Monnify</b> (card, bank transfer or USSD). Each member is assigned one partner, which is shown on the Wallet page. No BVN or NIN is required. Your wallet is credited once the partner confirms the payment, usually within moments.</p><p>Every deposit carries a <b>tax charge of ${naira(FEES.tax)}</b>, added to the amount you pay at checkout (for example, to deposit ${naira(3000)} you pay ${naira(3000 + FEES.tax)}). The tax charge is not added to your wallet and is not refundable.</p><p>All fees and contributions are paid <b>from your wallet</b>. Money in your wallet stays yours until a fee or contribution is taken from it under these terms.</p>`)
+    + S(3, 'Plans', `<p>We offer <b>Grocery plans</b> of <b>4, 8, 12 and 25 weeks</b>. Every plan shows its contribution amount, how often you pay (daily or weekly), its length, the number of payments, the day payouts open and the payout. A plan runs from the day you join.</p><p>A joining fee of <b>${naira(FEES.join)}</b> is taken from your wallet each time you join a plan, separately from your contributions.</p>`)
     + S(4, 'Plan codes', `<p>Each time you join a plan, a unique <b>plan code</b> is created for that plan. The code becomes usable on a set day after you join and expires at the end of a later day; both are chosen by the foundation for each plan and shown on the plan.</p><p>While the code is usable, it can be entered (optionally) when joining a new plan, by you or by anyone you share it with. Each code can be used <b>once only</b>. Once used, it is marked as used, and both you and the foundation can see who used it and when. A code that is not used in time is marked as expired and cannot be used afterwards.</p>`)
-    + S(5, 'Automatic payments, deadlines and late penalties', `<p>You do not pay each contribution by hand. At the start of each payment period your plan's contribution is taken from your wallet automatically. If you have several plans and your wallet cannot cover them all, plans are served from the oldest deadline first; a plan that cannot be covered <b>waits</b> and is paid automatically as soon as you deposit.</p><p>All deadlines use Lagos time (WAT). Daily plans are due before <b>${RULES.cutoffHour}:00 noon</b> each day. Weekly plans are due by <b>Friday ${RULES.cutoffHour}:00 noon</b>.</p><p>A contribution that is still unpaid after its deadline costs double when it is collected (for example ${naira(1000)} becomes ${naira(1000 * m)}). The extra amount is a penalty: it does not count towards your savings or payout. Keep enough in your wallet to avoid it.</p>`)
+    + S(5, 'Payment schedule, automatic payments and late penalties', `<p><b>Your first payment is made on the day you join</b>, together with the joining fee. After that, weekly plans are paid <b>every 7 days</b> counted from the day you join, and daily plans every day. For example, on a 4-week plan joined on the 1st of the month, payments fall on the 1st, 8th, 15th and 22nd.</p><p>You do not pay each contribution by hand: on each due day the contribution is taken from your wallet automatically. If you have several plans and your wallet cannot cover them all, plans are served from the oldest due date first; a plan that cannot be covered <b>waits</b> and is paid automatically as soon as you deposit.</p><p>All times are Lagos time (WAT). On each due day the contribution is taken from your wallet from midnight; it must be paid <b>before ${RULES.cutoffHour}:00 noon</b>. A contribution still unpaid at ${RULES.cutoffHour}:00 noon on its due day costs double when it is collected (for example ${naira(1000)} becomes ${naira(1000 * m)}). Your first payment is taken when you join, so it never carries a penalty. The extra amount is a penalty: it does not count towards your savings or payout. Keep enough in your wallet to avoid it.</p>`)
     + S(6, 'The t-shirt fee', `<p>Every member pays a one-time fee of <b>${naira(FEES.shirt)}</b> for the foundation t-shirt, taken from the wallet. You can use your dashboard, join plans and make contributions without paying it. It only becomes payable <b>when you want to request a payout</b>. It is paid once only.</p>`)
-    + S(7, 'Payouts and the clearance fee', `<p>You can request a payout from a plan only when <b>all</b> of the following are true:</p><ul class="list-disc pl-5 space-y-1"><li>the plan is fully paid and its length has ended;</li><li><b>you have another plan that has been actively running for at least 2 weeks</b>: a plan you joined at least 14 days earlier, other than the one you are collecting, whose saving period has not yet ended;</li><li>you have paid the one-time ${naira(FEES.shirt)} t-shirt fee (see section 6);</li><li>your <b>payout details</b> (account name, bank, account number and address) are saved on your Profile page. Payouts are paid into that account, so keep it up to date.</li></ul><p>Every payout request also carries a clearance fee of <b>${naira(FEES.clearance)}</b>, taken from your wallet. Your request is sent as soon as it is paid.</p>`)
+    + S(7, 'Payouts and the clearance fee', `<p>You can request a payout from a plan only when <b>all</b> of the following are true:</p><ul class="list-disc pl-5 space-y-1"><li>the plan is fully paid and its payout date has been reached (each plan shows how many days after joining payouts open; for example 30 days for a 4-week plan);</li><li><b>you have another plan that has been actively running for at least 2 weeks</b>: a plan you joined at least 14 days earlier, other than the one you are collecting, whose saving period has not yet ended;</li><li>you have paid the one-time ${naira(FEES.shirt)} t-shirt fee (see section 6);</li><li>your <b>payout details</b> (account name, bank, account number and address) are saved on your Profile page. Payouts are paid into that account, so keep it up to date.</li></ul><p>Every payout request also carries a clearance fee of <b>${naira(FEES.clearance)}</b>, taken from your wallet. Your request is sent as soon as it is paid.</p>`)
     + S(8, 'Records', `<p>Every deposit, fee and contribution is recorded in your wallet history on your dashboard, and you can see every payment, payout and plan code there.</p>`)
     + S(9, 'Contact', `<p>For any question about these terms, contact customer care on <b>${SUPPORT_PHONE}</b> or <b>${SUPPORT_PHONE_2}</b>, email <b>${SUPPORT_EMAIL}</b>, or visit us at <b>${OFFICE_ADDRESS}</b>.</p><p>${BRAND} · RC ${RC_NUMBER}.</p>`)
     + '</div>';
@@ -221,14 +232,14 @@ const termsHTML = () => {
 const rulesHTML = () => {
   const m = RULES.lateMultiplier, c = (t, d) => `<div class="bg-white border rounded-xl p-5"><h3 class="font-semibold text-slate-900 text-sm">${t}</h3><p class="text-sm text-slate-600 mt-1.5 leading-relaxed">${d}</p></div>`;
   return '<h2 class="text-sm font-semibold text-slate-900 mb-3">Wallet, fees and plan codes</h2>' + feeRulesHTML() + '<h2 class="text-sm font-semibold text-slate-900 mt-8 mb-3">Plans, automatic payments and deadlines</h2><div class="grid md:grid-cols-2 gap-4 max-w-4xl">'
-    + c('Grocery plans', `Plans run for <b>4, 8, 12 or 25 weeks</b> from the day you join, with daily or weekly contributions. Each plan shows its amount, number of payments and payout.`)
+    + c('Grocery plans', `Plans run for <b>4, 8, 12 or 25 weeks</b> from the day you join, with daily or weekly contributions. Each plan shows its amount, number of payments, payout, and how many days after joining payouts open (for example 30 days for a 4-week plan).`)
     + c('Paid from your wallet', `You never pay a contribution by hand. When a payment period opens, the contribution is taken from your wallet. Keep your wallet funded and your plans run by themselves.`)
     + c('Not enough in the wallet?', `If you have, say, three plans of ${naira(2000)} a week and ${naira(5000)} in your wallet, two plans are paid and the third <b>waits</b>. The moment you deposit, it is paid automatically.`)
-    + c('Daily plans', `Taken at the start of each day and due before <b>${RULES.cutoffHour}:00 noon</b>. Still unpaid after noon, it costs double: ${naira(500)} becomes ${naira(500 * m)}.`)
-    + c('Weekly plans', `Taken from Monday and due by <b>Friday ${RULES.cutoffHour}:00 noon</b>. After that the week's payment is doubled.`)
-    + c('Late penalty', `Every unpaid contribution carries its own penalty once its deadline has passed. A penalty is a fee: it does not count towards your savings or payout.`)
-    + c('Your first payment', `Daily: today before noon if you join before noon, otherwise tomorrow before noon. Weekly: the coming Friday noon (or the one after, if it has passed).`)
-    + c('Time and confirmation', `All deadlines use Lagos time (WAT), whatever your device clock says. Deposits are confirmed automatically by Flutterwave.`) + '</div>' + contactHTML();
+    + c('Your first payment', `Made on the day you join, together with the ${naira(FEES.join)} joining fee. Your wallet must hold both before you can join.`)
+    + c('Weekly plans', `After the first payment, every <b>7 days</b> counted from the day you join. A 4-week plan joined on the 1st is paid on the 1st, 8th, 15th and 22nd, and its payout opens after 30 days.`)
+    + c('Daily plans', `After the first payment, every day. Each day's contribution is taken from your wallet from midnight and must be paid before ${RULES.cutoffHour}:00 noon.`)
+    + c('Pay before 12 noon', `Each due day's contribution is taken from your wallet from midnight. If it is still unpaid at <b>${RULES.cutoffHour}:00 noon</b> that day (because your wallet was short), it costs double when collected (${naira(500)} becomes ${naira(500 * m)}). A penalty is a fee: it does not count towards your savings or payout.`)
+    + c('Time and confirmation', `All dates use Lagos time (WAT), whatever your device clock says. Deposits are confirmed automatically by our payment partner (Flutterwave, Paystack or Monnify).`) + '</div>' + contactHTML();
 };
 
 // contact card (Rules pages); the homepage and footer show the same details
@@ -261,7 +272,8 @@ function codePanel(sub) {
 }
 window.copyCode = c => navigator.clipboard?.writeText(c).then(() => toast('Code copied: ' + c), () => toast(c));
 
-// ===== deposits through Flutterwave Checkout (amount + ₦100 tax charge) =====
+// ===== deposits through the member's payment provider (Flutterwave, Paystack or Monnify; amount + ₦100 tax charge) =====
+const GATEWAY_NAME = { flutterwave: 'Flutterwave', paystack: 'Paystack', monnify: 'Monnify' };
 // Starts a deposit and sends the member to Flutterwave; they come back to this page and dashboard.html settles it.
 async function startDeposit(amount) {
   amount = Math.round(Number(amount) || 0);
@@ -274,8 +286,8 @@ async function startDeposit(amount) {
 const depositSummary = a => { a = Math.max(0, Math.round(+a || 0)); return `<div class="flex justify-between py-1"><span class="text-slate-500">Into your wallet</span><span class="font-medium">${naira(a)}</span></div><div class="flex justify-between py-1"><span class="text-slate-500">Tax charge</span><span class="font-medium">${naira(FEES.tax)}</span></div><div class="flex justify-between py-1.5 border-t mt-1 text-base"><span class="font-semibold text-slate-900">You pay</span><span class="font-semibold text-slate-900">${naira(a + FEES.tax)}</span></div>`; };
 // pop-up used when the wallet is short (e.g. joining a plan): prefilled with the shortfall
 window.depositBox = (amount = '') => {
-  modal('Deposit with Flutterwave', `<label class="block text-sm"><span class="text-slate-600">Amount to add to your wallet (₦)</span><input name="amount" type="number" min="100" step="1" value="${esc(amount)}" required class="${inp} mt-1"></label><div id="dsum" class="text-sm rounded-lg border bg-slate-50 px-3 py-2">${depositSummary(amount)}</div><p class="text-xs text-slate-500">A ${naira(FEES.tax)} tax charge is added to every deposit. You pay on Flutterwave's secure page (card, bank transfer or USSD) and come back here.</p>`,
-    async d => { await startDeposit(d.amount); }, 'Continue to Flutterwave');
+  modal('Deposit', `<label class="block text-sm"><span class="text-slate-600">Amount to add to your wallet (₦)</span><input name="amount" type="number" min="100" step="1" value="${esc(amount)}" required class="${inp} mt-1"></label><div id="dsum" class="text-sm rounded-lg border bg-slate-50 px-3 py-2">${depositSummary(amount)}</div><p class="text-xs text-slate-500">A ${naira(FEES.tax)} tax charge is added to every deposit. You pay on our payment partner's secure page (card, bank transfer or USSD) and come back here.</p>`,
+    async d => { await startDeposit(d.amount); }, 'Continue to payment');
   const i = document.querySelector('[data-ui="modal"] [name="amount"]'); i.oninput = () => { $('#dsum').innerHTML = depositSummary(i.value); }; i.focus();
 };
 
@@ -346,10 +358,14 @@ function modal(title, body, onSubmit, cta = 'Save') {
   d.className = 'fixed inset-0 z-50 bg-slate-900/40 flex items-center justify-center p-4'; d.setAttribute('data-ui', 'modal');
   d.innerHTML = `<form class="bg-white rounded-xl shadow-xl w-full max-w-md p-6 space-y-3 max-h-[90dvh] overflow-y-auto"><h3 class="font-semibold text-slate-900">${title}</h3>${body}<div class="flex justify-end gap-2 pt-2"><button type="button" class="c ${btn2}">Cancel</button><button class="${btn}">${cta}</button></div></form>`;
   document.body.appendChild(d);
-  $('.c', d).onclick = () => d.remove();
+  const close = () => { removeEventListener('keydown', esc, true); d.remove(); };
+  const esc = e => { if (e.key === 'Escape' && document.body.contains(d)) { e.stopPropagation(); close(); } };
+  addEventListener('keydown', esc, true);
+  d.onclick = e => { if (e.target === d) close(); };                     // click outside the box closes it
+  $('.c', d).onclick = close;
   $('form', d).onsubmit = async e => {
     e.preventDefault();
-    try { await onSubmit(Object.fromEntries(new FormData(e.target))); d.remove(); refresh(); }
+    try { await onSubmit(Object.fromEntries(new FormData(e.target))); close(); refresh(); }
     catch (x) { toast(x.message, 1); }
   };
 }
@@ -497,7 +513,7 @@ function layout({ brand, sub = 'Helping Hands Foundation', nav, views, alias = {
     if (!same) { window._lh = location.hash; window._hf = {}; window._pg = {}; window._sel = new Set(); }                   // moving to another page forgets its filters
     document.querySelectorAll('.nl').forEach(a => { const on = a.dataset.id === navId; a.classList.toggle('bg-white/10', on); a.classList.toggle('!text-white', on); a.classList.toggle('nl-on', on); });
     $('#ttl').textContent = (nav.find(n => n[0] === navId) || nav[0])[1];
-    ALL = null; closePlan(); if (!same) scrollTo(0, 0);
+    ALL = null; closePlan(); if (!same) { scrollTo(0, 0); document.querySelectorAll('[data-ui="modal"]').forEach(x => x.remove()); }   // leaving a page closes its pop-ups
     if (!$('#ov').classList.contains('hidden')) tog();
     const m = $('#main'); if (!same) m.innerHTML = '<p class="text-sm text-slate-400">Loading…</p>';
     try { await views[v](m, new URLSearchParams(qs)); if (same) scrollTo(0, y); } catch (e) { m.innerHTML = `<p class="text-red-600 text-sm">${esc(e.message)}</p>`; }

@@ -2,7 +2,7 @@
 function createMockPB() {
   const mem = {};
   const ls = { get: k => { try { return localStorage.getItem(k); } catch (e) { return mem[k] ?? null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch (e) { mem[k] = v; } }, del: k => { try { localStorage.removeItem(k); } catch (e) { delete mem[k]; } } };
-  const KEY = 'jjhhf_db_v2', REL = { user: 'users', plan: 'plans', subscription: 'subscriptions' };
+  const KEY = 'jjhhf_db_v3', REL = { user: 'users', plan: 'plans', subscription: 'subscriptions' };
   let db = JSON.parse(ls.get(KEY) || 'null');
   const save = () => ls.set(KEY, JSON.stringify(db));
   // real-time emulation: listeners per collection; other open tabs are told through a BroadcastChannel
@@ -20,7 +20,7 @@ function createMockPB() {
     const u = add('users', { email: 'user@jjhhf.test', password: 'user12345', name: 'Ada Okafor', country: 'Nigeria', phone: '08012345678', role: 'user', shirt_paid: true }, 40);
     add('users', { email: 'chidi@example.com', password: 'pass12345', name: 'Chidi Eze', country: 'Ghana', phone: '0244000111', role: 'user', shirt_paid: false }, 15);
     // grocery plans of 4, 8, 12 and 25 weeks (code usable from day 4 to day 7 after joining)
-    [[4, 2000], [8, 2000], [12, 1500], [25, 1000]].forEach(([w, a]) => add('plans', { name: 'Grocery ' + w + ' weeks', category: 'grocery', frequency: 'weekly', amount: a, weeks: w, duration: w, payout: a * w, description: 'Rice, oil, semo and noodles', code_from_day: 4, code_until_day: 7, active: true }, 50));
+    [[4, 2000], [8, 2000], [12, 1500], [25, 1000]].forEach(([w, a]) => add('plans', { name: 'Grocery ' + w + ' weeks', category: 'grocery', frequency: 'weekly', amount: a, weeks: w, duration: w, payout: a * w, payout_after_days: Math.round(w * 7.5), description: 'Rice, oil, semo and noodles', code_from_day: 4, code_until_day: 7, active: true }, 50));
     add('plans', { name: 'Daily grocery 4 weeks', category: 'grocery', frequency: 'daily', amount: 300, weeks: 4, duration: 28, payout: 8400, description: '', code_from_day: 3, code_until_day: 6, active: true }, 50);
     const pl = nm => db.plans.find(p => p.name === nm);
     const mk = (p, age) => { const s = add('subscriptions', { user: u.id, plan: p.id, status: 'active' }, age); const L = mToL(mTs(s.created)), y = L.getUTCFullYear(), m = L.getUTCMonth(), d = L.getUTCDate(); s.code = 'JJ-DEMO-' + String(age).padStart(4, '0').slice(-4); s.code_from = mFromL(y, m, d + p.code_from_day - 1).toISOString().replace('T', ' '); s.code_until = mFromL(y, m, d + p.code_until_day).toISOString().replace('T', ' '); return s; };
@@ -107,11 +107,11 @@ function createMockPB() {
       const reg = M.filter(u => u.shirt_paid).length;
       return { users: U.length, members: M.length, registered: reg, unregistered: M.length - reg, withAccount: 0, tax: sum((db.fees || []).filter(f => f.type === 'tax' && f.status === 'confirmed'), 'amount'), deposits: (db.deposits || []).filter(d => d.status === 'successful').length, depositTotal: sum((db.deposits || []).filter(d => d.status === 'successful'), 'amount'), pendingDeposits: 0, codesUsed: db.subscriptions.filter(x => x.code_used_at).length, codesOpen: db.subscriptions.filter(x => x.code && !x.code_used_at && Date.now() >= parseTs(x.code_from).getTime() && Date.now() < parseTs(x.code_until).getTime()).length, admins: U.length - M.length, held: sum(U, 'wallet_balance'), subscriptions: db.subscriptions.length, activeSubscriptions: db.subscriptions.filter(x => x.status === 'active').length, pendingPayments: P.filter(p => p.status === 'pending').length, confirmedTotal: sum(conf, 'amount'), penalties: sum(conf, 'penalty'), fees: sum((db.fees || []).filter(f => f.status === 'confirmed'), 'amount'), pendingPayouts: db.payouts.filter(p => p.status === 'pending').length, plans: db.plans.length, topups: tops.length, topupTotal: sum(tops, 'amount') };
     }
-    if (path.endsWith('/wallet/deposit')) {               // demo: the deposit succeeds at once (the real site sends you to Flutterwave)
+    if (path.endsWith('/wallet/deposit')) {               // demo: the deposit succeeds at once (the real site sends you to the member's payment partner)
       const a = Math.round(+b.amount || 0); if (a < 100) throw new Error('The smallest deposit is ₦100.');
       db.deposits = db.deposits || []; const d = { id: uid(), created: now(), user: aid, amount: a, fee: 100, total: a + 100, tx_ref: 'JJHHF-DEP-DEMO-' + uid(), status: 'successful', flw_id: 'DEMO' };
       db.deposits.push(d); emit('deposits', 'create', d);
-      post(aid, a, 'topup', 'Flutterwave deposit (demo)', { ref: d.tx_ref });
+      post(aid, a, 'topup', 'Online deposit (demo)', { ref: d.tx_ref });
       const f = { id: uid(), created: now(), user: aid, type: 'tax', amount: 100, status: 'confirmed', note: 'Tax charge on deposit' }; db.fees.push(f); emit('fees', 'create', f);
       collect(aid); save(); return { demo: true, amount: a, fee: 100, total: a + 100 };
     }
@@ -130,7 +130,7 @@ function createMockPB() {
       else if (t === 'join') {
         const pl = db.plans.find(p => p.id === b.plan); if (!pl || pl.active === false) throw new Error('That plan is not open for enrolment.');
         const cs = String(b.code || '').trim() ? codeState(b.code) : null; if (cs && cs.status !== 'valid') throw new Error(cs.message);
-        const s = { id: uid(), created: now(), user: aid, plan: pl.id, status: 'active' }, c = catchupCount(s, pl), total = amt + c * pl.amount;
+        const s = { id: uid(), created: now(), user: aid, plan: pl.id, status: 'active' }, c = catchupCount(s, pl), total = amt + c * pl.amount + (isSeasonal(pl) ? 0 : pl.amount);   // fee + first payment
         short(total);
         if (cs) s.joined_code = cs.code; giveCode(s, pl);
         db.subscriptions.push(s); emit('subscriptions', 'create', s);
