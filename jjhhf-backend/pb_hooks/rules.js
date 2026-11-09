@@ -85,11 +85,13 @@ function collectAt(sub, pl, i) {
   return t < start ? start : t;
 }
 
+// sub.no_penalty_before (optional): instalments whose deadline is on or before that moment never carry the late penalty
+// (plans brought over from manual records). KEEP IN SYNC with planState in app.js.
 function stateFromPaid(sub, pl, paid, now = new Date()) {
   const A = pl.amount, pen = A * (RULES.lateMultiplier - 1), S = sched(sub, pl), due = S.due;
-  const left = Math.max(0, S.n - paid);
+  const left = Math.max(0, S.n - paid), wv = sub.no_penalty_before ? parseTs(sub.no_penalty_before) : null;
   let overdue = 0; while (overdue < left && due(paid + overdue) <= now) overdue++;
-  return { A, pen, paid, left, duration: S.n, due, overdue, next: left ? due(paid) : null, cost: k => A + (k < overdue ? pen : 0) };
+  return { A, pen, paid, left, duration: S.n, due, overdue, next: left ? due(paid) : null, cost: k => A + (k < overdue && !(wv && due(paid + k) <= wv) ? pen : 0) };
 }
 function planState(sub, pl, pays, now = new Date()) {
   const paid = pays.filter(p => p.subscription === sub.id && p.status !== 'rejected').reduce((a, p) => a + instOf(p, pl), 0);

@@ -74,7 +74,7 @@ function collect(app, uid) {
     if (s.getString("next_collect") === "") s = syncSub(app, s);           // first visit for this plan
     if (s.getString("next_collect") === DONE) return;                       // fully paid
     let plan; try { plan = app.findRecordById("plans", s.getString("plan")); } catch (_) { return; }
-    const pl = R.planObj(plan), sub = { id: s.id, created: s.getString("created") };
+    const pl = R.planObj(plan), sub = { id: s.id, created: s.getString("created"), no_penalty_before: s.getString("no_penalty_before") };
     items.push({ rec: s, sub, pl, plan, paid: s.getInt("paid_count"), start: s.getInt("paid_count"), blocked: false });
   });
   let bal = balanceOf(app, uid), done = 0;
@@ -87,14 +87,14 @@ function collect(app, uid) {
       if (!best || st.next < bestDue) { best = it; bestDue = st.next; }
     });
     if (!best) break;
-    const st = R.stateFromPaid(best.sub, best.pl, best.paid, now), cost = st.cost(0), late = st.overdue > 0 ? 1 : 0;
+    const st = R.stateFromPaid(best.sub, best.pl, best.paid, now), cost = st.cost(0), late = cost > st.A ? 1 : 0;   // overdue but penalty-free (imported plan) counts as on time
     if (bal < cost) { best.blocked = true; continue; }          // this plan waits for a top-up; the others carry on
     const p = new Record(app.findCollectionByNameOrId("payments"));
     p.set("user", uid); p.set("subscription", best.sub.id); p.set("amount", cost); p.set("status", "confirmed");
-    p.set("penalty", late ? st.pen : 0); p.set("installments", 1); p.set("late_count", late);
+    p.set("penalty", late ? cost - st.A : 0); p.set("installments", 1); p.set("late_count", late);
     p.set("note", "Wallet" + (late ? " · late" : ""));
     app.save(p);
-    bal = post(app, uid, -cost, "contribution", best.pl.name + (late ? " (late, includes " + naira(st.pen) + " penalty)" : ""), { plan: best.plan.id, subscription: best.sub.id });
+    bal = post(app, uid, -cost, "contribution", best.pl.name + (late ? " (late, includes " + naira(cost - st.A) + " penalty)" : st.overdue > 0 ? " (overdue, no penalty)" : ""), { plan: best.plan.id, subscription: best.sub.id });
     best.paid++; done++;
   }
   // store where each plan now stands; a plan waiting for money is looked at again later (or straight away when the member tops up)
@@ -221,7 +221,7 @@ function joinMany(app, uid, planId, code, qty, codes) {
 // contributions). No joining fee is taken and the wallet is not touched for what was paid before. From then on the plan runs exactly
 // like any other: the next payments are collected from the wallet automatically. Payments that are already due but not covered by
 // amountPaid are collected at once if the wallet can pay them (late ones with the usual penalty).
-function importPlan(app, uid, planId, days, amountPaid, note, opts = {}) {
+function importPlan(app, uid, planId, days, amountPaid, note, opts = {}) {   // opts.chargePenalty: charge the late penalty on payments already overdue
   let plan; try { plan = app.findRecordById("plans", String(planId || "")); } catch (_) { throw new BadRequestError("That plan does not exist."); }
   try { app.findRecordById("users", String(uid || "")); } catch (_) { throw new BadRequestError("Member not found."); }
   const pl = R.planObj(plan);
@@ -238,10 +238,11 @@ function importPlan(app, uid, planId, days, amountPaid, note, opts = {}) {
   const sub = new Record(app.findCollectionByNameOrId("subscriptions"));
   sub.set("user", uid); sub.set("plan", plan.id); sub.set("status", "active"); sub.set("imported", true);
   sub.set("import_note", String(note || "").trim().slice(0, 300) || "Brought over from manual records");
+  if (!opts.chargePenalty) sub.set("no_penalty_before", ts(new Date()));   // payments overdue at this moment are collected without the penalty
   app.save(sub);
   // "created" is filled in automatically on save; move it back to the real joining day
   app.db().newQuery("UPDATE {{subscriptions}} SET [[created]] = {:c} WHERE [[id]] = {:id}").bind({ c: ts(start), id: sub.id }).execute();
-  const rec = app.findRecordById("subscriptions", sub.id), s = { id: rec.id, created: rec.getString("created") };
+  const rec = app.findRecordById("subscriptions", sub.id), s = { id: rec.id, created: rec.getString("created"), no_penalty_before: rec.getString("no_penalty_before") };
   const win = R.codeWindow(s.created, plan.getInt("code_from_day"), plan.getInt("code_until_day"));
   if (win) { rec.set("code", newCode(app)); rec.set("code_from", ts(win.from)); rec.set("code_until", ts(win.until)); }
   if (k > 0) {
@@ -259,7 +260,7 @@ function importPlan(app, uid, planId, days, amountPaid, note, opts = {}) {
 
 // Several at once: items = [{ plan, days, amount_paid, count (how many of that same plan, default 1), note }].
 // All or nothing (run inside a transaction). Respects the limit of MAX_SLOTS running memberships per plan.
-function importMany(app, uid, items, note) {
+function importMany(app, uid, items, note, chargePenalty) {
   if (!Array.isArray(items) || !items.length) throw new BadRequestError("Add at least one plan.");
   const total = items.reduce((a, it) => a + Math.max(0, Math.floor(Number(it.count || 1))), 0);
   if (total < 1) throw new BadRequestError("Add at least one plan.");
@@ -279,13 +280,68 @@ function importMany(app, uid, items, note) {
   items.forEach((it, i) => {
     for (let k = 0; k < Math.floor(Number(it.count || 1)); k++) {
       let r;
-      try { r = importPlan(app, uid, it.plan, it.days, it.amount_paid, it.note || note, { noCollect: true }); }
+      try { r = importPlan(app, uid, it.plan, it.days, it.amount_paid, it.note || note, { noCollect: true, chargePenalty: !!chargePenalty }); }
       catch (err) { const m = String((err && err.message) || err).replace(/^[\s\S]*?BadRequestError:\s*/, ""); throw new BadRequestError("Row " + (i + 1) + ": " + m); }
       out.added++; out.paid += r.paid; out.subscriptions.push(r.subscription);
     }
   });
   out.collected = collect(app, uid);                              // payments already due, if the wallet can pay them
   return out;
+}
+
+// ---- admin: edit a running plan ----
+// changes = { days (how long it has been running), amount_paid, charge_penalty, note }; any of them may be left out.
+// Payments made through the website wallet stay as they are: amount_paid can only be raised or lowered in what was recorded by hand
+// (plans brought over, or earlier admin edits). Afterwards the schedule is worked out again and anything due is collected.
+const MANUAL = /^(Brought over|Adjusted by admin)/;
+function editPlan(app, sid, changes) {
+  let rec; try { rec = app.findRecordById("subscriptions", String(sid || "")); } catch (_) { throw new BadRequestError("Plan not found."); }
+  if (rec.getString("status") !== "active") throw new BadRequestError("Only a running (active) plan can be edited.");
+  if (app.findRecordsByFilter("payouts", "subscription = {:s} && status != 'rejected'", "", 1, 0, { s: rec.id }).length) throw new BadRequestError("This plan already has a payout request, so it cannot be edited.");
+  const plan = app.findRecordById("plans", rec.getString("plan")), pl = R.planObj(plan), A = Math.round(pl.amount), uid = rec.getString("user");
+  // 1) start date
+  if (changes.days !== undefined && changes.days !== null && changes.days !== "") {
+    const days = Math.floor(Number(changes.days));
+    if (!(days >= 0 && days <= 3650)) throw new BadRequestError("Enter how many days the plan has been running (0 = today).");
+    const L = new Date(Date.now() + 36e5), start = new Date(Date.UTC(L.getUTCFullYear(), L.getUTCMonth(), L.getUTCDate() - days, 8) - 36e5);
+    app.db().newQuery("UPDATE {{subscriptions}} SET [[created]] = {:c} WHERE [[id]] = {:id}").bind({ c: ts(start), id: rec.id }).execute();
+    rec = app.findRecordById("subscriptions", rec.id);
+    // an unused plan code moves with the plan
+    if (rec.getString("code") && !rec.getString("code_used_at") && !rec.getString("code_admin")) {
+      const win = R.codeWindow(rec.getString("created"), plan.getInt("code_from_day"), plan.getInt("code_until_day"));
+      if (win) { rec.set("code_from", ts(win.from)); rec.set("code_until", ts(win.until)); }
+    }
+  }
+  const s = { id: rec.id, created: rec.getString("created") }, n = R.sched(s, pl).n;
+  // 2) amount paid
+  if (changes.amount_paid !== undefined && changes.amount_paid !== null && changes.amount_paid !== "") {
+    const paid = Math.round(Number(changes.amount_paid));
+    if (!(paid >= 0) || paid % A) throw new BadRequestError("Amount paid must be a multiple of the contribution, " + naira(A) + ".");
+    const k = paid / A;
+    const pays = app.findRecordsByFilter("payments", "subscription = {:s} && status != 'rejected'", "created", 0, 0, { s: rec.id });
+    const manual = pays.filter(p => MANUAL.test(p.getString("note")));
+    const site = pays.filter(p => !MANUAL.test(p.getString("note"))).reduce((a, p) => a + (p.getInt("installments") || 1), 0);
+    if (k < site) throw new BadRequestError(site + " payment" + (site === 1 ? " was" : "s were") + " made through the website (" + naira(site * A) + "); the amount paid cannot be less than that.");
+    if (k > n) throw new BadRequestError("This plan has only " + n + " payments (" + naira(n * A) + " in total).");
+    const cur = manual.reduce((a, p) => a + (p.getInt("installments") || 1), 0);
+    if (k - site !== cur) {
+      manual.forEach(p => app.delete(p));                       // never touched the wallet: replaced by one record with the new amount
+      if (k - site > 0) {
+        const p = new Record(app.findCollectionByNameOrId("payments"));
+        p.set("user", uid); p.set("subscription", rec.id); p.set("amount", (k - site) * A); p.set("status", "confirmed"); p.set("penalty", 0);
+        p.set("installments", k - site); p.set("late_count", 0); p.set("note", "Adjusted by admin · " + (k - site) + " payment" + (k - site === 1 ? "" : "s") + " recorded by hand");
+        app.save(p);
+      }
+    }
+  }
+  // 3) penalty on what is overdue right now, and the note
+  if (changes.charge_penalty !== undefined && changes.charge_penalty !== null) rec.set("no_penalty_before", changes.charge_penalty ? "" : ts(new Date()));
+  if (changes.note !== undefined && changes.note !== null) rec.set("import_note", String(changes.note || "").trim().slice(0, 300));
+  app.save(rec);
+  syncSub(app, rec.id);                                           // paid_count and next_collect from the payment history
+  const took = collect(app, uid);
+  const after = app.findRecordById("subscriptions", rec.id);
+  return { subscription: rec.id, paid: after.getInt("paid_count"), payments: n, collected: took };
 }
 
 // Runs fn inside a transaction. A BadRequestError thrown inside loses its message on the way out of the transaction, so it is re-thrown here
@@ -298,4 +354,4 @@ function inTx(fn) {
   }
 }
 
-module.exports = { FEES, MAX_SLOTS, naira, post, credit, collect, joinPlan, joinMany, importPlan, importMany, balanceOf, inTx, syncSub, ts, DONE, codeState, normCode };
+module.exports = { FEES, MAX_SLOTS, naira, post, credit, collect, joinPlan, joinMany, importPlan, importMany, editPlan, balanceOf, inTx, syncSub, ts, DONE, codeState, normCode };

@@ -80,6 +80,8 @@ To bring the online partners back later, set `ONLINE_PAYMENTS=on` (their code is
   "How many times" for the same plan held several times): how long it has been running and the amount already paid. All rows are
   saved together or not at all; no joining fee is taken and the plan carries on automatically. Payments already due and unpaid are
   collected from the wallet straight away (late ones with the usual penalty), as the preview warns.
+- **Edit** (member page, Plans table, running plans): change how long the plan has been running, the amount paid (not below
+  what was paid through the website wallet), whether payments overdue now carry the late penalty, and the note.
 - **Suspend / Restore account** (member page): a suspended member cannot sign in or use the site and sees the reason.
   Their plans keep running.
 

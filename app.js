@@ -195,7 +195,8 @@ function planState(sub, pl, pays, now = new Date()) {
   const paid = pays.filter(p => p.subscription === sub.id && p.status !== 'rejected').reduce((a, p) => a + instOf(p, pl), 0);
   const left = Math.max(0, S.n - paid);
   let overdue = 0; while (overdue < left && due(paid + overdue) <= now) overdue++;
-  return { A, pen, paid, left, duration: S.n, due, overdue, next: left ? due(paid) : null, cost: k => A + (k < overdue ? pen : 0) };
+  const wv = sub.no_penalty_before ? parseTs(sub.no_penalty_before) : null;   // plans brought over without penalties on what was already overdue (pb_hooks/rules.js)
+  return { A, pen, paid, left, duration: S.n, due, overdue, next: left ? due(paid) : null, cost: k => A + (k < overdue && !(wv && due(paid + k) <= wv) ? pen : 0) };
 }
 // Wallet view of one subscription: is its next instalment ready to be collected, and is the wallet able to cover it?
 //   'done' fully paid | 'scheduled' not collectable yet (shows when) | 'waiting' ready but the wallet is short (shows how much to add)

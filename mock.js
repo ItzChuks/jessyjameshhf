@@ -77,7 +77,7 @@ function createMockPB() {
       let best = null, bd = null;
       items.forEach(i => { if (i.blocked) return; const st = planState(i.sub, i.pl, db.payments.filter(p => p.subscription === i.sub.id), t); if (!st.left || collectAt(i.sub, i.pl, st.paid) > t) return; if (!best || st.next < bd) { best = i; bd = st.next; } });
       if (!best) break;
-      const st = planState(best.sub, best.pl, db.payments.filter(p => p.subscription === best.sub.id), t), cost = st.cost(0), late = st.overdue > 0;
+      const st = planState(best.sub, best.pl, db.payments.filter(p => p.subscription === best.sub.id), t), cost = st.cost(0), late = cost > st.A;   // overdue but penalty-free (imported plan) counts as on time
       if ((db.users.find(x => x.id === uidv).wallet_balance || 0) < cost) { best.blocked = true; continue; }
       const p = { id: uid(), created: now(), user: uidv, subscription: best.sub.id, amount: cost, penalty: late ? st.pen : 0, installments: 1, late_count: late ? 1 : 0, note: 'Wallet' + (late ? ' · late' : ''), status: 'confirmed' };
       db.payments.push(p); emit('payments', 'create', p);
@@ -160,7 +160,7 @@ function createMockPB() {
         if (!Number.isInteger(k) || k < 0) throw new Error('Row ' + (i + 1) + ': amount paid must be a multiple of the contribution, ' + n(pl.amount) + '.');
         const L = new Date(Date.now() + 36e5), start = new Date(Date.UTC(L.getUTCFullYear(), L.getUTCMonth(), L.getUTCDate() - days, 8) - 36e5);
         for (let c = 0; c < Math.max(1, Math.floor(+it.count || 1)); c++) {
-          const s = { id: uid(), created: start.toISOString().replace('T', ' '), user: b.user, plan: pl.id, status: 'active', imported: true, import_note: it.note || b.note || 'Brought over from manual records' }; giveCode(s, pl);
+          const s = { id: uid(), created: start.toISOString().replace('T', ' '), user: b.user, plan: pl.id, status: 'active', imported: true, import_note: it.note || b.note || 'Brought over from manual records', no_penalty_before: b.charge_penalty ? '' : now() }; giveCode(s, pl);
           db.subscriptions.push(s); emit('subscriptions', 'create', s); ids.push(s.id); added++;
           if (k) { const p = { id: uid(), created: now(), user: b.user, subscription: s.id, amount: paid, penalty: 0, installments: k, late_count: 0, note: 'Brought over from manual records · ' + k + ' payments', status: 'confirmed' }; db.payments.push(p); emit('payments', 'create', p); }
         }

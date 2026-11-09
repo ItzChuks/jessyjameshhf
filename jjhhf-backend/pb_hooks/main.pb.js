@@ -61,7 +61,7 @@ onRecordUpdateRequest((e) => {
 onRecordUpdateRequest((e) => {
   if (e.hasSuperuserAuth()) return e.next();
   const o = e.record.original();
-  for (const f of ["clearance_paid_at"]) if (e.record.getString(f) !== o.getString(f)) throw new BadRequestError("That field cannot be changed.");
+  for (const f of ["clearance_paid_at", "no_penalty_before"]) if (e.record.getString(f) !== o.getString(f)) throw new BadRequestError("That field cannot be changed.");
   e.next();
 }, "subscriptions");
 

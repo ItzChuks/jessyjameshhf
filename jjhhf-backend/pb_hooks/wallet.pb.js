@@ -265,7 +265,7 @@ routerAdd("POST", "/api/jjhhf/admin/import-plan", (e) => {
   const b = e.requestInfo().body || {};
   let out = {};
   // b.items = [{ plan, days, amount_paid, count, note }] adds several at once; the single-plan form (plan, days, amount_paid) still works
-  W.inTx((tx) => { out = Array.isArray(b.items) ? W.importMany(tx, String(b.user || ""), b.items, b.note) : W.importPlan(tx, String(b.user || ""), b.plan, b.days, b.amount_paid, b.note); });
+  W.inTx((tx) => { out = Array.isArray(b.items) ? W.importMany(tx, String(b.user || ""), b.items, b.note, !!b.charge_penalty) : W.importPlan(tx, String(b.user || ""), b.plan, b.days, b.amount_paid, b.note, { chargePenalty: !!b.charge_penalty }); });
   return e.json(200, out);
 }, $apis.requireAuth());
 
@@ -292,3 +292,13 @@ cronAdd("jjhhf_receipt_queue", "* * * * *", () => {
   catch (err) { console.log("jjhhf receipt queue:", String(err)); }
   finally { store.remove(KEY); }
 });
+
+// 20) Admin: edit a running plan (how long it has run, amount paid, penalty on overdue payments, note). See wallet.js editPlan.
+routerAdd("POST", "/api/jjhhf/admin/edit-plan", (e) => {
+  const W = require(`${__hooks}/wallet.js`);
+  if (e.auth.getString("role") !== "admin") throw new ForbiddenError("Admins only.");
+  const b = e.requestInfo().body || {};
+  let out = {};
+  W.inTx((tx) => { out = W.editPlan(tx, String(b.subscription || ""), { days: b.days, amount_paid: b.amount_paid, charge_penalty: b.charge_penalty === undefined ? undefined : !!b.charge_penalty, note: b.note }); });
+  return e.json(200, out);
+}, $apis.requireAuth());
