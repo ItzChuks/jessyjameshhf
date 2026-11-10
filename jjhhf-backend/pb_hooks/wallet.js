@@ -283,10 +283,14 @@ function importPlan(app, uid, planId, days, amountPaid, note, opts = {}) {
   const win = opts.code === "none" || opts.noCode ? null : opts.code ? codeDatesFromAdmin(opts.code) : R.codeWindow(s.created, plan.getInt("code_from_day"), plan.getInt("code_until_day"));
   if (win) { rec.set("code", newCode(app)); rec.set("code_from", ts(win.from)); rec.set("code_until", ts(win.until)); }
   if (k > 0) {
+    // opts.chargePaid: the amount already paid is taken from the wallet (it then counts like a website payment and cannot be
+    // removed by Edit); otherwise it is only recorded (money received outside the website)
     const p = new Record(app.findCollectionByNameOrId("payments"));
     p.set("user", uid); p.set("subscription", rec.id); p.set("amount", paid); p.set("status", "confirmed"); p.set("penalty", 0);
-    p.set("installments", k); p.set("late_count", 0); p.set("note", "Brought over from manual records · " + k + " payment" + (k === 1 ? "" : "s"));
+    p.set("installments", k); p.set("late_count", 0);
+    p.set("note", opts.chargePaid ? "Wallet · " + k + " payment" + (k === 1 ? "" : "s") + " added by admin" : "Brought over from manual records · " + k + " payment" + (k === 1 ? "" : "s"));
     app.save(p);
+    if (opts.chargePaid) post(app, uid, -paid, "contribution", pl.name + " · " + k + " payment" + (k === 1 ? "" : "s") + " added by admin", { plan: plan.id, subscription: rec.id });
   }
   if (opts.chargeJoinFee) {                                       // the admin chose to take the joining fee from the wallet
     post(app, uid, -FEES.join, "join", "Joining fee · " + pl.name, { plan: plan.id, subscription: rec.id });
@@ -303,7 +307,7 @@ function importPlan(app, uid, planId, days, amountPaid, note, opts = {}) {
 
 // Several at once: items = [{ plan, days, amount_paid, count (how many of that same plan, default 1), note }].
 // All or nothing (run inside a transaction). Each row adds 1 to MAX_SLOTS memberships; there is no limit on how many a member holds.
-function importMany(app, uid, items, note, chargePenalty, code, chargeJoinFee) {
+function importMany(app, uid, items, note, chargePenalty, code, chargeJoinFee, chargePaid) {
   if (!Array.isArray(items) || !items.length) throw new BadRequestError("Add at least one plan.");
   const total = items.reduce((a, it) => a + Math.max(0, Math.floor(Number(it.count || 1))), 0);
   if (total < 1) throw new BadRequestError("Add at least one plan.");
@@ -330,15 +334,17 @@ function importMany(app, uid, items, note, chargePenalty, code, chargeJoinFee) {
       it._cs = cs; codesUsed.push(cs);
     }
   });
-  if (chargeJoinFee) {                                            // all or nothing: the wallet must cover every joining fee
-    const need = FEES.join * total, bal = balanceOf(app, uid);
-    if (bal < need) throw new BadRequestError("The member's wallet needs " + naira(need) + " for the joining fees (" + total + " × " + naira(FEES.join) + ") but has " + naira(bal) + ". Credit " + naira(need - bal) + " first, or untick the joining fee.");
+  if (chargeJoinFee || chargePaid) {                              // all or nothing: the wallet must cover everything taken from it
+    const fees = chargeJoinFee ? FEES.join * total : 0;
+    const paidAll = chargePaid ? items.reduce((a, it) => a + Math.round(Number(it.amount_paid || 0)) * Math.floor(Number(it.count || 1)), 0) : 0;
+    const need = fees + paidAll, bal = balanceOf(app, uid);
+    if (bal < need) throw new BadRequestError("The member's wallet needs " + naira(need) + " (" + [paidAll ? naira(paidAll) + " already paid" : "", fees ? naira(fees) + " joining fees" : ""].filter(Boolean).join(" + ") + ") but has " + naira(bal) + ". Credit " + naira(need - bal) + " first, or untick what should not come from the wallet.");
   }
   const out = { added: 0, paid: 0, subscriptions: [] };
   items.forEach((it, i) => {
     for (let k = 0; k < Math.floor(Number(it.count || 1)); k++) {
       let r;
-      try { r = importPlan(app, uid, it.plan, it.days, it.amount_paid, it.note || note, { noCollect: true, chargePenalty: !!chargePenalty, chargeJoinFee: !!chargeJoinFee, code, groupId: it._group, lead: k === 0, size: Math.floor(Number(it.count || 1)), noCode: k > 0, joinedCode: it._cs ? it._cs.code : "" }); }
+      try { r = importPlan(app, uid, it.plan, it.days, it.amount_paid, it.note || note, { noCollect: true, chargePenalty: !!chargePenalty, chargeJoinFee: !!chargeJoinFee, chargePaid: !!chargePaid, code, groupId: it._group, lead: k === 0, size: Math.floor(Number(it.count || 1)), noCode: k > 0, joinedCode: it._cs ? it._cs.code : "" }); }
       catch (err) { const m = String((err && err.message) || err).replace(/^[\s\S]*?BadRequestError:\s*/, ""); throw new BadRequestError("Row " + (i + 1) + ": " + m); }
       out.added++; out.paid += r.paid; out.subscriptions.push(r.subscription);
       if (k === 0) it._first = r.subscription;
@@ -384,7 +390,15 @@ function editPlan(app, sid, changes) {
     if (k < site) throw new BadRequestError(site + " payment" + (site === 1 ? " was" : "s were") + " made through the website (" + naira(site * A) + "); the amount paid cannot be less than that.");
     if (k > n) throw new BadRequestError("This plan has only " + n + " payments (" + naira(n * A) + " in total).");
     const cur = manual.reduce((a, p) => a + (p.getInt("installments") || 1), 0);
-    if (k - site !== cur) {
+    if (changes.charge_difference && k > site + cur) {             // raise taken from the wallet: a new payment, the rest stays as it is
+      const extra = k - site - cur, amt = extra * A;
+      if (balanceOf(app, uid) < amt) throw new BadRequestError("The member's wallet needs " + naira(amt) + " for the extra " + extra + " payment" + (extra === 1 ? "" : "s") + " but has " + naira(balanceOf(app, uid)) + ". Credit it first, or untick \"Take the extra from the wallet\".");
+      const p = new Record(app.findCollectionByNameOrId("payments"));
+      p.set("user", uid); p.set("subscription", rec.id); p.set("amount", amt); p.set("status", "confirmed"); p.set("penalty", 0);
+      p.set("installments", extra); p.set("late_count", 0); p.set("note", "Wallet · " + extra + " payment" + (extra === 1 ? "" : "s") + " added by admin");
+      app.save(p);
+      post(app, uid, -amt, "contribution", pl.name + " · " + extra + " payment" + (extra === 1 ? "" : "s") + " added by admin", { plan: plan.id, subscription: rec.id });
+    } else if (k - site !== cur) {
       manual.forEach(p => app.delete(p));                       // never touched the wallet: replaced by one record with the new amount
       if (k - site > 0) {
         const p = new Record(app.findCollectionByNameOrId("payments"));

@@ -294,7 +294,7 @@ routerAdd("POST", "/api/jjhhf/admin/import-plan", (e) => {
   // b.items = [{ plan, days, amount_paid, count, note }] adds several at once; the single-plan form (plan, days, amount_paid) still works
   // b.code_mode: "custom" (b.code_from / b.code_until, "YYYY-MM-DD") | "none" | left out (the plan's usual code days)
   const code = b.code_mode === "custom" ? { from: String(b.code_from || ""), until: String(b.code_until || "") } : b.code_mode === "none" ? "none" : undefined;
-  W.inTx((tx) => { out = Array.isArray(b.items) ? W.importMany(tx, String(b.user || ""), b.items, b.note, !!b.charge_penalty, code, !!b.charge_join_fee) : W.importPlan(tx, String(b.user || ""), b.plan, b.days, b.amount_paid, b.note, { chargePenalty: !!b.charge_penalty, chargeJoinFee: !!b.charge_join_fee, code }); });
+  W.inTx((tx) => { out = Array.isArray(b.items) ? W.importMany(tx, String(b.user || ""), b.items, b.note, !!b.charge_penalty, code, !!b.charge_join_fee, !!b.charge_paid) : W.importPlan(tx, String(b.user || ""), b.plan, b.days, b.amount_paid, b.note, { chargePenalty: !!b.charge_penalty, chargeJoinFee: !!b.charge_join_fee, chargePaid: !!b.charge_paid, code }); });
   return e.json(200, out);
 }, $apis.requireAuth());
 
@@ -328,7 +328,7 @@ routerAdd("POST", "/api/jjhhf/admin/edit-plan", (e) => {
   if (e.auth.getString("role") !== "admin") throw new ForbiddenError("Admins only.");
   const b = e.requestInfo().body || {};
   let out = {};
-  W.inTx((tx) => { out = W.editGroup(tx, String(b.subscription || ""), { days: b.days, amount_paid: b.amount_paid, charge_penalty: b.charge_penalty === undefined ? undefined : !!b.charge_penalty, note: b.note }); });
+  W.inTx((tx) => { out = W.editGroup(tx, String(b.subscription || ""), { days: b.days, amount_paid: b.amount_paid, charge_penalty: b.charge_penalty === undefined ? undefined : !!b.charge_penalty, charge_difference: !!b.charge_difference, note: b.note }); });
   return e.json(200, out);
 }, $apis.requireAuth());
 

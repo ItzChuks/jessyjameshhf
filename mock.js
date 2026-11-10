@@ -188,6 +188,7 @@ function createMockPB() {
           db.subscriptions.push(s); emit('subscriptions', 'create', s); ids.push(s.id); added++;
           if (k) { const p = { id: uid(), created: now(), user: b.user, subscription: s.id, amount: paid, penalty: 0, installments: k, late_count: 0, note: 'Brought over from manual records · ' + k + ' payments', status: 'confirmed' }; db.payments.push(p); emit('payments', 'create', p); }
           if (b.charge_join_fee) post(b.user, -3000, 'join', 'Joining fee · ' + pl.name, { plan: pl.id, subscription: s.id });
+          if (b.charge_paid && paid) post(b.user, -paid, 'contribution', pl.name + ' · ' + k + ' payments added by admin', { plan: pl.id, subscription: s.id });
         }
       });
       const before = db.payments.length; collect(b.user); save(); return { added, subscriptions: ids, subscription: ids[0], collected: db.payments.length - before };

@@ -84,7 +84,8 @@ Plans joined before groups existed stay single.
 ## Admin tools added
 - **Add existing plans** (member page): for members who were saving manually. One row per plan (add as many rows as needed, and
   "How many times" for the same plan held several times): how long it has been running and the amount already paid. All rows are
-  saved together or not at all; "Take the joining fee" deducts ₦3,000 per plan from the wallet (all or nothing); "Give each plan a plan code" lets you choose the day the codes open and the day they expire
+  saved together or not at all; "Take the amount already paid from the wallet" (ticked by default) deducts what was paid,
+  "Take the joining fee" deducts ₦3,000 per plan (all or nothing; untick to only record money received outside the website); "Give each plan a plan code" lets you choose the day the codes open and the day they expire
   (otherwise the plan's usual code days, counted from the backdated start, would make them expired already); no joining fee is taken and the plan carries on automatically. Payments already due and unpaid are
   collected from the wallet straight away (late ones with the usual penalty), as the preview warns.
 - **Edit** (member page, Plans table, running plans): change how long the plan has been running, the amount paid (not below
