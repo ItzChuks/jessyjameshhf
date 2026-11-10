@@ -184,12 +184,12 @@ function joinPlan(app, uid, planId, code, opts = {}) {
 }
 
 // ---- joining the same plan several times at once ----
-// A member may hold up to MAX_SLOTS running (active) memberships of the same plan, and can add several in one go.
+// A member can join the same plan as many times as they like, up to MAX_SLOTS (50) at a time in one go. There is no overall limit.
 // Each one is a separate membership with its own joining fee, payments, payout and plan code. A plan code entered when
 // joining is used once, on the first of them. All or nothing: if the wallet cannot cover every one, none is created.
 // Bulk code reuse: "codes" is a list of plan codes (e.g. a member's own codes from earlier plans, or ones shared with them).
 // Each new membership uses one code, in order; joining fewer times than the number of codes is raised to that number.
-const MAX_SLOTS = 50;
+const MAX_SLOTS = 50;   // the most memberships (and plan codes) in ONE join; no limit on how many a member holds
 function joinMany(app, uid, planId, code, qty, codes) {
   const list = [];
   [code].concat(Array.isArray(codes) ? codes : []).forEach(c => { if (String(c || "").trim()) { const k = normCode(c); if (!list.includes(k)) list.push(k); } });
@@ -199,11 +199,6 @@ function joinMany(app, uid, planId, code, qty, codes) {
   if (!(n >= 1 && n <= MAX_SLOTS)) throw new BadRequestError("You can join a plan 1 to " + MAX_SLOTS + " times at once.");
   let plan; try { plan = app.findRecordById("plans", String(planId || "")); } catch (_) { throw new BadRequestError("That plan does not exist."); }
   if (!plan.getBool("active")) throw new BadRequestError("That plan is not open for enrolment.");
-  const have = app.findRecordsByFilter("subscriptions", "user = {:u} && plan = {:p} && status = 'active'", "", 0, 0, { u: uid, p: plan.id }).length;
-  if (have + n > MAX_SLOTS) {
-    const left = Math.max(0, MAX_SLOTS - have);
-    throw new BadRequestError("You already have " + have + " running " + plan.getString("name") + " membership" + (have === 1 ? "" : "s") + ". The limit is " + MAX_SLOTS + " per plan, so you can " + (left ? "add up to " + left + " more." : "not add more until one ends."));
-  }
   const pl = R.planObj(plan), s = { id: "", created: ts(new Date()) };
   const c = R.catchupCount(s, pl), first = R.isSeasonal(pl) ? 0 : pl.amount, each = FEES.join + c * pl.amount + first, total = each * n, bal = balanceOf(app, uid);
   if (n > 1 && bal < total) {
@@ -259,7 +254,7 @@ function importPlan(app, uid, planId, days, amountPaid, note, opts = {}) {   // 
 }
 
 // Several at once: items = [{ plan, days, amount_paid, count (how many of that same plan, default 1), note }].
-// All or nothing (run inside a transaction). Respects the limit of MAX_SLOTS running memberships per plan.
+// All or nothing (run inside a transaction). Each row adds 1 to MAX_SLOTS memberships; there is no limit on how many a member holds.
 function importMany(app, uid, items, note, chargePenalty) {
   if (!Array.isArray(items) || !items.length) throw new BadRequestError("Add at least one plan.");
   const total = items.reduce((a, it) => a + Math.max(0, Math.floor(Number(it.count || 1))), 0);
@@ -273,8 +268,6 @@ function importMany(app, uid, items, note, chargePenalty) {
   });
   Object.keys(perPlan).forEach(pid => {
     let plan; try { plan = app.findRecordById("plans", String(pid || "")); } catch (_) { throw new BadRequestError("One of the plans does not exist."); }
-    const have = app.findRecordsByFilter("subscriptions", "user = {:u} && plan = {:p} && status = 'active'", "", 0, 0, { u: uid, p: plan.id }).length;
-    if (have + perPlan[pid] > MAX_SLOTS) throw new BadRequestError(plan.getString("name") + ": the member already has " + have + " running, and the limit is " + MAX_SLOTS + " per plan (you are adding " + perPlan[pid] + ").");
   });
   const out = { added: 0, paid: 0, subscriptions: [] };
   items.forEach((it, i) => {

@@ -201,8 +201,6 @@ function createMockPB() {
         const pl = db.plans.find(p => p.id === b.plan); if (!pl || pl.active === false) throw new Error('That plan is not open for enrolment.');
         const L = [...new Set([b.code, ...(b.codes || [])].filter(x => String(x || '').trim()).map(norm))];
         let q = Math.floor(+b.qty || 1); if (L.length > q) q = L.length; if (!(q >= 1 && q <= 50)) throw new Error('You can join a plan 1 to 50 times at once.');
-        const have = db.subscriptions.filter(x => x.user === aid && x.plan === pl.id && x.status === 'active').length;
-        if (have + q > 50) throw new Error('You already have ' + have + ' running memberships of this plan. The limit is 50 per plan, so you can add up to ' + Math.max(0, 50 - have) + ' more.');
         const CS = L.map(k => { const x = codeState(k); if (x.status !== 'valid') throw new Error(k + ': ' + x.message); return x; });
         const c = catchupCount({ created: now() }, pl), each = amt + c * pl.amount + (isSeasonal(pl) ? 0 : pl.amount);   // fee + first payment
         short(each * q);
