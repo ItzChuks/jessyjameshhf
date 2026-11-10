@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><link rel="stylesheet" href="tailwind.css?v=20261109r"><script src="theme.js?v=20261109r"></script><script src="https://cdn.jsdelivr.net/npm/pocketbase@0.26.8/dist/pocketbase.umd.js"></script><script src="mock.js?v=20261109r"></script><script src="pdf.js?v=20261109r"></script><script src="app.js?v=20261109r"></script><title>Admin – Jessy James Helping Hands Foundation</title></head>
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><link rel="stylesheet" href="tailwind.css?v=20261109s"><script src="theme.js?v=20261109s"></script><script src="https://cdn.jsdelivr.net/npm/pocketbase@0.26.8/dist/pocketbase.umd.js"></script><script src="mock.js?v=20261109s"></script><script src="pdf.js?v=20261109s"></script><script src="app.js?v=20261109s"></script><title>Admin – Jessy James Helping Hands Foundation</title></head>
 <body class="bg-slate-50 text-slate-800"><div id="app"></div>
 <script>
 if(guard('admin')){
@@ -47,6 +47,19 @@ const planPreview=(pl,days,paid,pen)=>{const L=new Date(Date.now()+36e5),start=n
   const k=paid/pl.amount,ok=paid>=0&&Number.isInteger(k)&&k<=S.n;if(!ok)return{ok,late:0,txt:'<span class="text-red-600">Amount paid must be a multiple of '+naira(pl.amount)+', up to '+naira(pl.amount*S.n)+' ('+S.n+' payments).</span>'};
   let late=0;while(late<S.n-k&&S.due(k+late)<=now)late++;const owed=Math.max(0,due-k);
   return{ok,late,owed,txt:'Started '+fmtDay(start)+' (day '+(days+1)+') · <b>'+k+' of '+S.n+'</b> paid · '+(owed?'<span class="text-amber-800">'+owed+' due and unpaid'+(late?(pen?', '+late+' late (double)':', no penalty'):'')+'</span>':k>=S.n?'fully paid, payouts open '+fmtDay(termEnd(sub,pl)):'next payment '+fmtDay(collectAt(sub,pl,k)))}};
+// ===== permanently delete a suspended member and all their records =====
+window.deleteUser=async id=>{const u=await col('users').getOne(id);
+ if(!u.suspended)return toast('Suspend the account first; only suspended accounts can be deleted.',1,6000);
+ let c={};try{c=await pb.send('/api/jjhhf/admin/delete-user?user='+encodeURIComponent(id),{method:'GET'})}catch(e){return toast(e.message,1)}
+ const L=[['subscriptions','plans (with their plan codes)'],['payments','payments'],['payouts','payout requests'],['fees','fees'],['wallet_txs','wallet history lines'],['deposits','deposits and receipt files']];
+ modal('Delete '+esc(u.name||u.email)+' permanently?','<div class="rounded-lg border bg-red-50 border-red-200 text-red-700 p-3 text-sm"><b>This cannot be undone.</b> The account, profile and bank details, and every record below are wiped from the database. Wallet balance lost: <b>'+naira(u.wallet_balance)+'</b>.</div>'
+  +'<ul class="text-sm divide-y border rounded-lg">'+L.map(x=>'<li class="flex justify-between px-3 py-1.5"><span class="text-slate-600">'+x[1]+'</span><b>'+(c[x[0]]||0).toLocaleString()+'</b></li>').join('')+'</ul>'
+  +'<p class="text-xs text-slate-500">Members who used one of their plan codes keep their plans; the code will show "used by Deleted member".</p>'
+  +'<label class="block text-sm"><span class="text-slate-600">Type <b>DELETE</b> to confirm</span><input name="confirm" autocomplete="off" required class="'+inp+' mt-1 font-mono"></label>',
+  async d=>{if((d.confirm||'').trim()!=='DELETE')throw new Error('Type DELETE (in capitals) to confirm.');
+   const r=await pb.send('/api/jjhhf/admin/delete-user',{method:'POST',body:{user:id,confirm:'DELETE'}});
+   toast((r.name||'Member')+' and all their records were deleted.',0,7000);location.hash='users'},'Delete permanently');
+ const M=document.querySelector('[data-ui="modal"]'),b=M.querySelector('button:not([type])');b.className=b.className.replace(/bg-emerald-\d+|bg-brand-\d+|hover:bg-\S+/g,'')+' bg-red-600 hover:bg-red-700 text-white';M.querySelector('[name="confirm"]').focus()};
 // ===== add a plan a member was running manually =====
 // The admin picks the plan, how long it has been running and how much was paid. The plan is dated back to its real start, the paid
 // amount is recorded (no joining fee, wallet untouched), and from then on it carries on automatically like any other plan.
@@ -274,7 +287,7 @@ layout({brand:BRAND_SHORT,sub:'Admin panel',search:{placeholder:'Search members 
    <div class="bg-white border rounded-xl p-5 sm:p-6 mb-6">
     <div class="flex flex-wrap items-center gap-4"><div class="w-14 h-14 rounded-full bg-emerald-800 text-white grid place-items-center text-xl font-semibold shrink-0">${esc((u.name||u.email||'?').trim()[0].toUpperCase())}</div>
      <div class="min-w-0 flex-1"><h2 class="text-xl font-semibold text-slate-900 break-words">${nm(u)}</h2><p class="text-sm text-slate-500 break-words">${esc(u.email)}</p></div>
-     <div class="flex flex-wrap gap-1">${ab('Credit wallet',call('creditWallet',u.id),'bg-emerald-600 text-white')}${ab('Deduct',call('deductWallet',u.id),'border text-red-600')}${u.role==='admin'?'':ab('Add existing plans',call('importPlan',u.id),'border font-medium')}${regBtn(u)}${u.role==='admin'?'':u.suspended?ab('Restore account',call('suspendUser',u.id,'0'),'bg-emerald-600 text-white'):ab('Suspend',call('suspendUser',u.id,'1'),'border text-red-600')}${ab(u.role==='admin'?'Make user':'Make admin',call('setRec','users',u.id,'role',u.role==='admin'?'user':'admin'))}</div></div>
+     <div class="flex flex-wrap gap-1">${ab('Credit wallet',call('creditWallet',u.id),'bg-emerald-600 text-white')}${ab('Deduct',call('deductWallet',u.id),'border text-red-600')}${u.role==='admin'?'':ab('Add existing plans',call('importPlan',u.id),'border font-medium')}${regBtn(u)}${u.role==='admin'?'':u.suspended?ab('Restore account',call('suspendUser',u.id,'0'),'bg-emerald-600 text-white')+ab('Delete permanently',call('deleteUser',u.id),'bg-red-600 text-white'):ab('Suspend',call('suspendUser',u.id,'1'),'border text-red-600')}${ab(u.role==='admin'?'Make user':'Make admin',call('setRec','users',u.id,'role',u.role==='admin'?'user':'admin'))}</div></div>
     <div class="grid sm:grid-cols-2 sm:gap-x-10 mt-4 border-t">
      <dl class="divide-y">${kv('Phone',u.phone?`<a href="tel:${esc(u.phone)}" class="text-emerald-800 hover:underline">${esc(u.phone)}</a>`:'')}${kv('Country',esc(u.country))}${kv('Email',esc(u.email))}${kv('Address',esc(u.address))}</dl>
      <dl class="divide-y border-t sm:border-t-0">${kv('Role',u.role==='admin'?'Administrator':'Member')}${kv('Registration',u.role==='admin'?'':regBadge(u)+(u.shirt_paid&&u.shirt_paid_at?' <span class="text-xs font-normal text-slate-500">since '+date(u.shirt_paid_at)+'</span>':''))}${kv('Joined',date(u.created))}${kv('Account ID',esc(u.id))}</dl></div></div>

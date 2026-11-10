@@ -82,6 +82,8 @@ To bring the online partners back later, set `ONLINE_PAYMENTS=on` (their code is
   what was paid through the website wallet), whether payments overdue now carry the late penalty, and the note.
 - **Suspend / Restore account** (member page): a suspended member cannot sign in or use the site and sees the reason.
   Their plans keep running.
+- **Delete permanently** (suspended members only): wipes the account, profile and bank details, plans and plan codes, payments,
+  payouts, fees, wallet history, deposits and receipt files from the database. Type DELETE to confirm; cannot be undone.
 
 ## Rules summary
 

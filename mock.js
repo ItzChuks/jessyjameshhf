@@ -151,6 +151,16 @@ function createMockPB() {
       }
       emit('deposits', 'update', d); save(); return { status: d.status, balance: db.users.find(u => u.id === d.user).wallet_balance };
     }
+    if (path.includes('/admin/delete-user')) {
+      if (me.role !== 'admin') throw new Error('Admins only.');
+      const C = ['payments', 'payouts', 'fees', 'wallet_txs', 'deposits', 'subscriptions'];
+      if ((o.method || 'GET') === 'GET') { const id = new URLSearchParams(path.split('?')[1] || '').get('user'); return Object.fromEntries(C.map(c => [c, (db[c] || []).filter(r => r.user === id).length])); }
+      const u = db.users.find(x => x.id === b.user); if (!u) throw new Error('Member not found.'); if (u.role === 'admin') throw new Error('An admin account cannot be deleted here.');
+      if (!u.suspended) throw new Error('Suspend the account first.'); if (b.confirm !== 'DELETE') throw new Error('Type DELETE to confirm.');
+      db.subscriptions.forEach(r => { if (r.code_used_by === u.id && r.user !== u.id) { r.code_used_by = ''; r.code_used_name = 'Deleted member'; } });
+      const removed = {}; C.forEach(c => { const before = (db[c] || []).length; db[c] = (db[c] || []).filter(r => r.user !== u.id); removed[c] = before - db[c].length; });
+      db.users = db.users.filter(x => x.id !== u.id); save(); return { ok: true, name: u.name || u.email, removed };
+    }
     if (path.endsWith('/admin/suspend')) {
       if (me.role !== 'admin') throw new Error('Admins only.'); const u = db.users.find(x => x.id === b.user);
       if (u.role === 'admin') throw new Error('An admin account cannot be suspended.'); if (b.suspended && !b.reason) throw new Error('Give a reason.');

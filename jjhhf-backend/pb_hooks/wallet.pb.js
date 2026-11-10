@@ -320,3 +320,44 @@ routerAdd("POST", "/api/jjhhf/admin/edit-plan", (e) => {
   W.inTx((tx) => { out = W.editPlan(tx, String(b.subscription || ""), { days: b.days, amount_paid: b.amount_paid, charge_penalty: b.charge_penalty === undefined ? undefined : !!b.charge_penalty, note: b.note }); });
   return e.json(200, out);
 }, $apis.requireAuth());
+
+// 21) Admin: permanently delete a SUSPENDED member and everything about them (plans, plan codes, payments, payouts, fees, wallet
+//     history, deposits and their receipt files, profile and bank details). Cannot be undone. Other members who used one of their
+//     plan codes keep their plans; the "used by" name on those codes becomes "Deleted member".
+//     GET  ?user=ID  -> how many records would be deleted (for the confirmation window)
+//     POST {user, confirm: "DELETE"}
+routerAdd("GET", "/api/jjhhf/admin/delete-user", (e) => {
+  if (e.auth.getString("role") !== "admin") throw new ForbiddenError("Admins only.");
+  const uid = String(e.request.url.query().get("user") || ""), out = {};
+  ["payments", "payouts", "fees", "wallet_txs", "deposits", "subscriptions"].forEach(c => {
+    const m = new DynamicModel({ n: 0 });
+    $app.db().newQuery("SELECT COUNT(*) AS n FROM {{" + c + "}} WHERE [[user]] = {:u}").bind({ u: uid }).one(m);
+    out[c] = m.n;
+  });
+  return e.json(200, out);
+}, $apis.requireAuth());
+routerAdd("POST", "/api/jjhhf/admin/delete-user", (e) => {
+  const W = require(`${__hooks}/wallet.js`);
+  if (e.auth.getString("role") !== "admin") throw new ForbiddenError("Admins only.");
+  const b = e.requestInfo().body || {}, uid = String(b.user || "");
+  if (String(b.confirm || "") !== "DELETE") throw new BadRequestError("Type DELETE to confirm.");
+  let removed = {}, name = "";
+  W.inTx((tx) => {
+    let u; try { u = tx.findRecordById("users", uid); } catch (_) { throw new BadRequestError("Member not found."); }
+    if (u.getString("role") === "admin") throw new BadRequestError("An admin account cannot be deleted here.");
+    if (!u.getBool("suspended")) throw new BadRequestError("Suspend the account first; only suspended accounts can be deleted.");
+    name = u.getString("name") || u.getString("email");
+    // codes of OTHER members that this member used: keep the other member's record, forget who used it
+    tx.findRecordsByFilter("subscriptions", "code_used_by = {:u} && user != {:u}", "", 0, 0, { u: uid }).forEach(r => {
+      r.set("code_used_by", ""); r.set("code_used_name", "Deleted member"); tx.save(r);
+    });
+    ["payments", "payouts", "fees", "wallet_txs", "deposits", "subscriptions"].forEach(c => {
+      const list = tx.findRecordsByFilter(c, "user = {:u}", "", 0, 0, { u: uid });
+      list.forEach(r => tx.delete(r));                             // deleting a deposit also deletes its receipt file
+      removed[c] = list.length;
+    });
+    tx.delete(u);
+  });
+  console.log("jjhhf: admin", e.auth.id, "permanently deleted member", uid, JSON.stringify(removed));
+  return e.json(200, { ok: true, name, removed });
+}, $apis.requireAuth());

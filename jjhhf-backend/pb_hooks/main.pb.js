@@ -99,5 +99,5 @@ onRecordAfterUpdateSuccess((e) => {
 onRecordAfterDeleteSuccess((e) => {
   e.next();
   const sid = e.record.getString("subscription");
-  if (sid) try { require(`${__hooks}/wallet.js`).syncSub(e.app, sid); } catch (err) { console.log("jjhhf resync:", sid, String(err)); }
+  if (sid) try { require(`${__hooks}/wallet.js`).syncSub(e.app, sid); } catch (err) { if (!/no rows/.test(String(err))) console.log("jjhhf resync:", sid, String(err)); }   // plan deleted too: nothing to do
 }, "payments");
