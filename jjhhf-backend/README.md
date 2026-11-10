@@ -38,6 +38,10 @@ Sign up on the website, then in the PocketBase panel open **users**, edit yourse
   - `POST /api/jjhhf/code/check` is this plan code valid / used / expired / not open yet
   - `GET /api/jjhhf/admin/stats` admin totals
   - cron `jjhhf_wallet_collect` every minute, cron `jjhhf_deposit_check` every 10 minutes (re-checks pending deposits)
+- `pb_hooks/password.pb.js`: forgotten password. "Forgot password?" on the log-in page asks PocketBase to email a reset link;
+  this hook replaces PocketBase's email with a branded one linking to `{SITE_URL}/auth.html?reset=<token>` (works once, 30 minutes).
+  Needs: Railway variable `SITE_URL` (e.g. `https://jessyjameshhf.com.ng`) and SMTP in the PocketBase dashboard
+  (Settings > Mail settings: sender name/address, SMTP host, port, username, password; use "Send test email" to check).
 - `pb_hooks/rules.js`: deadlines, penalties, plan-code windows, payout rule. `pb_hooks/fees.js`: fee and payout checks.
 
 
@@ -74,12 +78,10 @@ Online payment partners (Flutterwave, Paystack, Monnify) are **paused**. Members
 To bring the online partners back later, set `ONLINE_PAYMENTS=on` (their code is still in gateways.js / deposits.js).
 
 ## Plan groups
-Joining the same plan several times at once (or one "Add existing plans" row with How many times > 1) makes ONE group:
-one card, one plan code (`subscriptions.group_id`, `group_lead`, `group_size`). Each membership in it still has its own
-payments, so automatic collection, penalties and payouts work as before. A group's code carries `group_size` plans: whoever
-uses it joins exactly that many (members cannot reduce it). Payout, Edit, Complete and Cancel act on the whole group; a group
-payout charges the clearance fee once per plan and its payout requests are shown and marked paid together.
-Plans joined before groups existed stay single.
+Joining the same plan several times at once (or one "Add existing plans" row with How many times > 1) makes ONE group, shown as
+one card (`subscriptions.group_id`, `group_lead`, `group_size`). Every plan in it has its own plan code and its own payments; a code
+always joins one plan. Payout, Edit, Complete and Cancel act on the whole group; a group payout charges the clearance fee once per
+plan and its payout requests are shown and marked paid together.
 
 ## Admin tools added
 - **Add existing plans** (member page): for members who were saving manually. One row per plan (add as many rows as needed, and
@@ -88,6 +90,10 @@ Plans joined before groups existed stay single.
   "Take the joining fee" deducts ₦3,000 per plan (all or nothing; untick to only record money received outside the website); "Give each plan a plan code" lets you choose the day the codes open and the day they expire
   (otherwise the plan's usual code days, counted from the backdated start, would make them expired already); no joining fee is taken and the plan carries on automatically. Payments already due and unpaid are
   collected from the wallet straight away (late ones with the usual penalty), as the preview warns.
+  "Joined with plan codes" (per row, optional): paste several codes, or tick them from "Pick from this member's usable codes"
+  (with Select all), e.g. the open codes of plans added earlier. Each code covers one plan in the row and is marked as used by
+  this member; How many times goes up to match. Codes are checked as you type; a code used twice, already used, expired or not
+  open yet is refused (`items[].use_codes` = array or text separated by spaces/commas).
 - **Edit** (member page, Plans table, running plans): change how long the plan has been running, the amount paid (not below
   what was paid through the website wallet), whether payments overdue now carry the late penalty, and the note.
 - **Suspend / Restore account** (member page): a suspended member cannot sign in or use the site and sees the reason.

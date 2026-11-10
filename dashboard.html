@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><link rel="stylesheet" href="tailwind.css?v=20261109x"><script src="theme.js?v=20261109x"></script><script src="https://cdn.jsdelivr.net/npm/pocketbase@0.26.8/dist/pocketbase.umd.js"></script><script src="mock.js?v=20261109x"></script><script src="pdf.js?v=20261109x"></script><script src="app.js?v=20261109x"></script><title>Dashboard – Jessy James Helping Hands Foundation</title></head>
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><link rel="stylesheet" href="tailwind.css?v=20261110b"><script src="theme.js?v=20261110b"></script><script src="https://cdn.jsdelivr.net/npm/pocketbase@0.26.8/dist/pocketbase.umd.js"></script><script src="mock.js?v=20261110b"></script><script src="pdf.js?v=20261110b"></script><script src="app.js?v=20261110b"></script><title>Dashboard – Jessy James Helping Hands Foundation</title></head>
 <body class="bg-slate-50 text-slate-800"><div id="app"></div>
 <script>
 if (guard()) {
@@ -38,17 +38,17 @@ window.join = async id => {
   const sbtn = 'w-10 h-10 shrink-0 rounded-lg border bg-white text-lg font-semibold text-slate-700 hover:bg-slate-100';
   modal('Join ' + esc(pl.name),
     `<dl class="divide-y border rounded-lg px-3">${row('Contribution', naira(pl.amount) + ' / ' + FQ[pl.frequency])}${row('Plan length', monthsLabel(pl) + ' · ' + S.n + ' payment' + (S.n === 1 ? '' : 's'))}${row('Total payout', naira(payoutOf(pl)) + ' each')}${row('Payout opens', fmtDay(opens) + ' (' + payoutDays(pl) + ' days)')}${codeDays(pl) ? row('Your plan code', 'usable ' + codeDays(pl)) : ''}</dl>`
-    + `<div class="text-sm"><span class="text-slate-600">How many times do you want to join?</span><div class="flex items-center gap-2 mt-1"><button type="button" data-q="-1" class="${sbtn}">−</button><input name="qty" type="number" inputmode="numeric" min="1" max="${room}" step="1" value="1" required class="${inp} text-center font-semibold"><button type="button" data-q="1" class="${sbtn}">+</button></div><p id="jq-hint" class="text-xs text-slate-500 mt-1">Plans joined together form one group with one plan code; each still has its own payments and payout. Up to ${MAX_SLOTS} at a time; join again for more.</p></div>`
+    + `<div class="text-sm"><span class="text-slate-600">How many times do you want to join?</span><div class="flex items-center gap-2 mt-1"><button type="button" data-q="-1" class="${sbtn}">−</button><input name="qty" type="number" inputmode="numeric" min="1" max="${room}" step="1" value="1" required class="${inp} text-center font-semibold"><button type="button" data-q="1" class="${sbtn}">+</button></div><p id="jq-hint" class="text-xs text-slate-500 mt-1">Plans joined together show as one card; each has its own payments, payout and plan code. Up to ${MAX_SLOTS} at a time; join again for more.</p></div>`
     + (myCodes.length ? `<div class="text-sm"><div class="flex items-center justify-between gap-3"><span class="text-slate-600">Use your plan codes <span class="text-slate-400">(${myCodes.length} ready)</span></span><label class="flex items-center gap-2 text-xs font-medium text-emerald-800 cursor-pointer"><input type="checkbox" id="jc-all" class="w-4 h-4 rounded accent-emerald-700">Select all</label></div>
-      <div class="mt-1 max-h-44 overflow-y-auto border rounded-lg divide-y">${myCodes.map(x => `<label class="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-slate-50"><input type="checkbox" data-code="${esc(x.code)}" class="w-4 h-4 rounded accent-emerald-700"><span class="font-mono font-semibold tracking-wider text-slate-900">${esc(x.code)}</span><span class="text-xs text-slate-500 truncate">${codeCount(x) > 1 ? '<b class="text-emerald-800">' + codeCount(x) + ' plans</b> · ' : ''}${esc(x.expand?.plan?.name || '')} · until ${lastDay(x)}</span></label>`).join('')}</div>
-      <p id="jc-note" class="text-xs text-slate-500 mt-1">A code carries the number of plans of the group it came from: using it joins exactly that many.</p></div>` : '')
+      <div class="mt-1 max-h-56 overflow-y-auto border rounded-lg divide-y">${myCodes.map(x => `<label class="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-slate-50"><input type="checkbox" data-code="${esc(x.code)}" class="w-4 h-4 rounded accent-emerald-700"><span class="font-mono font-semibold tracking-wider text-slate-900">${esc(x.code)}</span><span class="text-xs text-slate-500 truncate">${codeCount(x) > 1 ? '<b class="text-emerald-800">' + codeCount(x) + ' plans</b> · ' : ''}${esc(x.expand?.plan?.name || '')} · until ${lastDay(x)}</span></label>`).join('')}</div>
+      <p id="jc-note" class="text-xs text-slate-500 mt-1">Each code joins one plan. Tick the codes to use, or Select all; the number of times you join goes up to match.</p></div>` : '')
     + `<label class="block text-sm"><span class="text-slate-600">${myCodes.length ? 'Or enter a code shared with you' : 'Plan code'} <span class="text-slate-400">(optional)</span></span><input name="code" autocomplete="off" placeholder="JJ-XXXX-XXXX" class="${inp} mt-1 font-mono uppercase tracking-wider"></label><p id="cst" class="text-xs text-slate-500 -mt-1">Have a plan code from one of your plans, or one shared with you? Enter it here. A code works once.</p>`
     + `<dl class="divide-y border rounded-lg px-3">${row('Joining fee', naira(FEES.join))}${first ? row('First payment (today)', naira(first)) : ''}${c ? row('Catch-up (' + c + ' × ' + naira(pl.amount) + ')', naira(catchup)) : ''}${row('Per membership', naira(each), '', 'jq-each')}${row('Total from your wallet', naira(each), 'font-semibold', 'jq-total')}${row('Your wallet', naira(bal))}</dl>`
     + '<div id="jq-msg"></div>'
     + '<p class="text-xs text-slate-500">By joining you agree to the <a href="terms.html" target="_blank" class="text-emerald-800 underline">Terms and Conditions</a>.</p>',
     async d => {
       const codes = picked(), q = qtyNow(), total = each * q, short = total - bal;
-      if (fromCodes() > room) throw new Error('These codes carry ' + fromCodes() + ' plans; codes for at most ' + room + ' plans can be used at once.');
+      if (fromCodes() > room) throw new Error('At most ' + room + ' codes can be used at once.');
       if ((d.code || '').trim() && !typed.count) throw new Error('Check the plan code first: it is not valid.');
       if (short > 0) { await startDeposit(short); return; }
       const r = await payFee({ type: 'join', plan: id, qty: q, code: (d.code || '').trim(), codes });
@@ -61,19 +61,18 @@ window.join = async id => {
   const boxes = [...M.querySelectorAll('[data-code]')], all = M.querySelector('#jc-all');
   const picked = () => boxes.filter(b => b.checked).map(b => b.dataset.code);
   const counts = Object.fromEntries(myCodes.map(x => [x.code, codeCount(x)])), typed = { code: '', count: 0 };
-  // plans carried by the codes in use (ticked + a valid typed one); when codes are used, the number of times is exactly that and locked
-  const fromCodes = () => picked().reduce((a, c) => a + (counts[c] || 1), 0) + (typed.count && !picked().includes(typed.code) ? typed.count : 0);
-  const qtyNow = () => fromCodes() || Math.min(room, Math.max(1, Math.floor(+qi.value || 1)));
+  // each code in use (ticked + a valid typed one) joins one plan: the number of times is at least the number of codes
+  const fromCodes = () => picked().length + (typed.count && !picked().includes(typed.code) ? 1 : 0);
+  const qtyNow = () => Math.min(room, Math.max(1, Math.floor(+qi.value || 1), fromCodes()));
   const syncQty = () => { const k = picked().length; if (all) { all.checked = k === boxes.length; all.indeterminate = k > 0 && k < boxes.length; }
-    if (fromCodes() > room) toast('Those codes carry ' + fromCodes() + ' plans; you can join at most ' + room + ' at once. Untick some and use them in another join.', 1, 7000);
+    if (fromCodes() > room) toast('You can join at most ' + room + ' times at once, so at most ' + room + ' codes can be used in one go. Untick some and use them in another join.', 1, 7000);
     paint(); };
   boxes.forEach(b => b.onchange = syncQty);
   if (all) all.onchange = () => { boxes.forEach(b => b.checked = all.checked); syncQty(); };
   const paint = () => {
-    const locked = fromCodes() > 0, q = Math.min(room, qtyNow()), total = each * q, short = total - bal;
-    qi.readOnly = locked; qi.classList.toggle('bg-slate-100', locked); M.querySelectorAll('[data-q]').forEach(b => { b.disabled = locked; b.classList.toggle('opacity-50', locked); });
-    if (+qi.value !== q && (locked || document.activeElement !== qi)) qi.value = q;
-    $('#jq-hint').innerHTML = locked ? `<b class="text-emerald-800">Set by your plan code${picked().length + (typed.count ? 1 : 0) > 1 ? 's' : ''}:</b> you join exactly ${q} plan${q === 1 ? '' : 's'}, as one group with one new plan code.` : `Plans joined together form one group with one plan code; each still has its own payments and payout. Up to ${MAX_SLOTS} at a time; join again for more.`;
+    const k = fromCodes(), q = qtyNow(), total = each * q, short = total - bal;
+    if (+qi.value !== q && document.activeElement !== qi) qi.value = q;
+    $('#jq-hint').innerHTML = k ? `<b class="text-emerald-800">${k} code${k === 1 ? '' : 's'} in use</b>, one per plan${k < q ? ' (used on ' + k + ' of your ' + q + ' new plans)' : ''}. Each new plan gets its own new code.` : `Plans joined together show as one card; each has its own payments, payout and plan code. Up to ${MAX_SLOTS} at a time; join again for more.`;
     $('#jq-each').textContent = naira(each) + (q > 1 ? ' × ' + q : '');
     $('#jq-total').textContent = naira(total);
     $('#jq-msg').innerHTML = short > 0
@@ -81,8 +80,8 @@ window.join = async id => {
       : `<div class="rounded-lg border bg-emerald-50 border-emerald-200 text-emerald-800 p-3 text-sm">After joining, your wallet will hold <b>${naira(bal - total)}</b>. ${S.n > 1 ? `Your next payment${q > 1 ? 's' : ''} (${naira(pl.amount * q)}) ${q > 1 ? 'are' : 'is'} taken automatically on <b>${fmtDay(collectAt({ created: now }, pl, 1))}</b>, then every ${pl.frequency === 'daily' ? 'day' : '7 days'}.` : ''}</div>`;
     sub.textContent = short > 0 ? 'Deposit ' + naira(short + FEES.tax) : 'Pay ' + naira(total) + ' and join' + (q > 1 ? ' ×' + q : '');
   };
-  M.querySelectorAll('[data-q]').forEach(b => b.onclick = () => { if (fromCodes()) return; qi.value = Math.min(room, Math.max(1, (Math.floor(+qi.value) || 1) + +b.dataset.q)); paint(); });
-  qi.oninput = () => { if (!fromCodes()) paint(); }; qi.onblur = () => { if (!fromCodes()) qi.value = Math.min(room, Math.max(1, Math.floor(+qi.value || 1))); paint(); };
+  M.querySelectorAll('[data-q]').forEach(b => b.onclick = () => { qi.value = Math.min(room, Math.max(1, fromCodes(), (Math.floor(+qi.value) || 1) + +b.dataset.q)); paint(); });
+  qi.oninput = paint; qi.onblur = () => { qi.value = Math.min(room, Math.max(1, fromCodes(), Math.floor(+qi.value || 1))); paint(); };
   if (pre && all) { all.checked = true; all.onchange(); } else paint();
   // live check of the code as it is typed
   const ci = M.querySelector('[name="code"]'), cst = $('#cst'); let ct;
@@ -92,7 +91,7 @@ window.join = async id => {
     ct = setTimeout(async () => {
       try { const r = await pb.send('/api/jjhhf/code/check', { method: 'POST', body: { code: v } }); if (ci.value.trim() !== v) return;
         typed.code = r.code; typed.count = r.status === 'valid' ? (r.count || 1) : 0;
-        cst.className = 'text-xs -mt-1 font-medium ' + (r.status === 'valid' ? 'text-emerald-800' : 'text-red-600'); cst.textContent = r.message + (r.plan && r.status === 'valid' ? ' (from a ' + r.plan + ' plan)' : '') + (r.status === 'valid' && r.count > 1 ? ' It carries ' + r.count + ' plans, so you join ' + r.count + '.' : ''); paint(); }
+        cst.className = 'text-xs -mt-1 font-medium ' + (r.status === 'valid' ? 'text-emerald-800' : 'text-red-600'); cst.textContent = r.message + (r.plan && r.status === 'valid' ? ' (from a ' + r.plan + ' plan)' : ''); paint(); }
       catch (x) { typed.count = 0; cst.className = 'text-xs -mt-1 text-red-600'; cst.textContent = x.message; paint(); }
     }, 400);
   };
@@ -173,7 +172,7 @@ const startApp = () => layout({ brand: BRAND_SHORT, nav: [['overview', 'Overview
   async mine(m) {
     const [s, p, po, bal] = await Promise.all([subs(), pays(), pb.collection('payouts').getFullList({ filter: uf() }), walletBal()]);
     // one card per group (plans joined together share one card and one plan code); each membership keeps its own payments
-    m.innerHTML = head('My contributions', 'Your plans are paid from your wallet automatically. Plans joined together are shown as one card with one plan code.') + waitBanner(waits(s, p, bal), bal) + (s.length ? '<div class="grid md:grid-cols-2 gap-4">' + groupSubs(s).map(g => {
+    m.innerHTML = head('My contributions', 'Your plans are paid from your wallet automatically. Plans joined together are shown as one card; each plan has its own plan code.') + waitBanner(waits(s, p, bal), bal) + (s.length ? '<div class="grid md:grid-cols-2 gap-4">' + groupSubs(s).map(g => {
       const x = g.lead, N = g.n, ms = g.members, pl = planOf(x), one = pl.amount * sched(x, pl).n, t = one * N, paid = ms.reduce((a, mm) => a + sum(p, mm.id), 0), pc = Math.min(100, Math.round(paid / t * 100) || 0);
       const sts = ms.map(mm => planState(mm, pl, p)), st = sts[0], minPaid = Math.min(...sts.map(z => z.paid)), maxPaid = Math.max(...sts.map(z => z.paid));
       const wss = x.status === 'active' ? ms.map((mm, k) => walletStatus(mm, pl, sts[k], bal)) : [{ s: 'done' }];
@@ -191,7 +190,7 @@ const startApp = () => layout({ brand: BRAND_SHORT, nav: [['overview', 'Overview
         + (over && paid >= t && !asked && !other ? `<p class="text-xs text-amber-800 mt-1">${opens ? `Payout opens on <b>${fmtDay(opens)}</b>, when your other plan has been running for 2 weeks.` : 'To request this payout you need another plan that has been running for at least 2 weeks. <a href="#plans" class="underline font-medium">Join a plan</a>'}</p>` : '');
       const nextCost = waiting.length ? waiting.reduce((a, w) => a + w.cost, 0) : sts.reduce((a, z) => a + (z.left ? z.cost(0) : 0), 0);
       const joined = [...new Set(ms.map(mm => mm.joined_code).filter(Boolean))];
-      return `<div class="bg-white border rounded-xl p-5"><div class="flex justify-between items-start gap-3"><h3 class="font-semibold">${esc(pl.name)}${N > 1 ? ` <span class="ml-1 inline-flex px-2 py-0.5 rounded-md text-xs font-semibold bg-emerald-50 text-emerald-800 ring-1 ring-inset ring-emerald-200">× ${N}</span>` : ''}</h3>${badge(x.status)}</div><p class="text-sm text-slate-500 mt-1">${naira(pl.amount)} ${pl.frequency}${N > 1 ? ' each' : ''} · ${monthsLabel(pl)} · started ${date(x.created)}</p>${bar(pc)}<p class="text-sm mt-2">${naira(paid)} of ${naira(t)} <span class="text-slate-500">(${pc}%)</span></p><p class="text-xs text-slate-500 mt-1">${minPaid === maxPaid ? minPaid : minPaid + '–' + maxPaid} of ${st.duration} ${FQ[pl.frequency]}s paid${N > 1 ? ' on each of the ' + N + ' plans' : ''}</p>${termLine}${x.status === 'active' ? `<p class="text-sm text-slate-500 mt-3">${waiting.length ? `<span class="text-red-600 font-medium">Waiting for a deposit: ${naira(nextCost)} needed${short ? ', add at least ' + naira(short) + ' to your wallet' : ''}</span>` : ws.s === 'scheduled' ? `Next payment of <b class="font-medium text-slate-700">${naira(nextCost)}</b>${N > 1 ? ' (' + N + ' × ' + naira(st.cost(0)) + ')' : ''} is taken from your wallet on <b class="font-medium text-slate-700">${fmtDay(ws.at)}</b> (due ${fmtDue(pl.frequency, st.next)})` : dueLine(st, pl.frequency)}</p>` : ''}<div class="flex flex-wrap gap-2 mt-4">${short ? `<button onclick="depositBox(${short})" class="${btn}">Deposit ${naira(short)}</button>` : ''}${payAct}</div>${joined.length ? `<p class="text-xs text-slate-500 mt-3">Joined with plan code${joined.length > 1 ? 's' : ''} ${joined.map(c => `<span class="font-mono">${esc(c)}</span>`).join(', ')}</p>` : ''}${codePanel(g.holder)}</div>`;
+      return `<div class="bg-white border rounded-xl p-5"><div class="flex justify-between items-start gap-3"><h3 class="font-semibold">${esc(pl.name)}${N > 1 ? ` <span class="ml-1 inline-flex px-2 py-0.5 rounded-md text-xs font-semibold bg-emerald-50 text-emerald-800 ring-1 ring-inset ring-emerald-200">× ${N}</span>` : ''}</h3>${badge(x.status)}</div><p class="text-sm text-slate-500 mt-1">${naira(pl.amount)} ${pl.frequency}${N > 1 ? ' each' : ''} · ${monthsLabel(pl)} · started ${date(x.created)}</p>${bar(pc)}<p class="text-sm mt-2">${naira(paid)} of ${naira(t)} <span class="text-slate-500">(${pc}%)</span></p><p class="text-xs text-slate-500 mt-1">${minPaid === maxPaid ? minPaid : minPaid + '–' + maxPaid} of ${st.duration} ${FQ[pl.frequency]}s paid${N > 1 ? ' on each of the ' + N + ' plans' : ''}</p>${termLine}${x.status === 'active' ? `<p class="text-sm text-slate-500 mt-3">${waiting.length ? `<span class="text-red-600 font-medium">Waiting for a deposit: ${naira(nextCost)} needed${short ? ', add at least ' + naira(short) + ' to your wallet' : ''}</span>` : ws.s === 'scheduled' ? `Next payment of <b class="font-medium text-slate-700">${naira(nextCost)}</b>${N > 1 ? ' (' + N + ' × ' + naira(st.cost(0)) + ')' : ''} is taken from your wallet on <b class="font-medium text-slate-700">${fmtDay(ws.at)}</b> (due ${fmtDue(pl.frequency, st.next)})` : dueLine(st, pl.frequency)}</p>` : ''}<div class="flex flex-wrap gap-2 mt-4">${short ? `<button onclick="depositBox(${short})" class="${btn}">Deposit ${naira(short)}</button>` : ''}${payAct}</div>${joined.length ? `<p class="text-xs text-slate-500 mt-3">Joined with plan code${joined.length > 1 ? 's' : ''} ${joined.map(c => `<span class="font-mono">${esc(c)}</span>`).join(', ')}</p>` : ''}${groupCodes(ms)}</div>`;
     }).join('') + '</div>' : table([], []));
   },
   async payments(m) {

@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="tailwind.css?v=20261109x"><script src="theme.js?v=20261109x"></script><script src="https://cdn.jsdelivr.net/npm/pocketbase@0.26.8/dist/pocketbase.umd.js"></script><script src="mock.js?v=20261109x"></script><script src="app.js?v=20261109x"></script><title>Account – Jessy James Helping Hands Foundation</title></head>
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="tailwind.css?v=20261110b"><script src="theme.js?v=20261110b"></script><script src="https://cdn.jsdelivr.net/npm/pocketbase@0.26.8/dist/pocketbase.umd.js"></script><script src="mock.js?v=20261110b"></script><script src="app.js?v=20261110b"></script><title>Account – Jessy James Helping Hands Foundation</title></head>
 <body class="min-h-screen bg-slate-50 lg:grid lg:grid-cols-2">
 <aside class="hidden lg:flex flex-col justify-between bg-brand-950 text-white p-12 relative overflow-hidden" style="background-image:radial-gradient(40rem 26rem at 0% 0%,rgba(93,134,247,.28),transparent),radial-gradient(30rem 20rem at 100% 100%,rgba(245,183,42,.18),transparent)">
   <a href="index.html" class="flex items-center gap-3"><img src="logo.png" alt="" class="w-12 h-12 rounded-xl bg-white"><span class="leading-tight"><span class="block font-semibold">Jessy James</span><span class="block text-sm text-brand-200">Helping Hands Foundation</span></span></a>
@@ -18,10 +18,11 @@
 <div class="w-full max-w-md">
   <a href="index.html" class="lg:hidden flex flex-col items-center gap-3 mb-6 text-center"><img src="logo.png" alt="Jessy James Helping Hands Foundation logo" class="w-16 h-16 rounded-2xl bg-white shadow-lg ring-1 ring-slate-200"><span class="font-semibold text-slate-900 leading-tight">Jessy James<br><span class="text-sm font-medium text-slate-500">Helping Hands Foundation</span></span></a>
   <div class="bg-white rounded-2xl shadow-xl shadow-brand-900/5 ring-1 ring-slate-200 p-6 sm:p-8">
-    <div class="grid grid-cols-2 bg-slate-100 rounded-lg p-1 mb-6 text-sm font-medium"><button type="button" id="t-login" class="py-2 rounded-md">Log in</button><button type="button" id="t-register" class="py-2 rounded-md">Sign up</button></div>
+    <div id="tabs" class="grid grid-cols-2 bg-slate-100 rounded-lg p-1 mb-6 text-sm font-medium"><button type="button" id="t-login" class="py-2 rounded-md">Log in</button><button type="button" id="t-register" class="py-2 rounded-md">Sign up</button></div>
     <h1 id="ttl" class="font-display text-2xl text-slate-900"></h1>
     <p id="sub" class="text-sm text-slate-500 mt-1 mb-5"></p>
     <form id="f" class="space-y-4" novalidate></form>
+    <p id="ok" role="status" class="hidden mt-4 text-sm text-emerald-800 bg-emerald-50 ring-1 ring-emerald-200 rounded-lg px-3 py-2"></p>
     <p id="err" role="alert" class="hidden mt-4 text-sm text-red-700 bg-red-50 ring-1 ring-red-200 rounded-lg px-3 py-2"></p>
     <p id="alt" class="text-sm text-slate-500 text-center mt-6"></p>
   </div>
@@ -274,12 +275,15 @@ const L=(t,id)=>`<label for="${id}" class="text-sm font-medium text-slate-700">$
 const field=(label,name,type,ac,extra='',hint='')=>`<div>${L(label,name)}<input id="${name}" name="${name}" type="${type}" autocomplete="${ac}" ${extra} class="${inp} mt-1">${hint?`<p class="text-xs text-slate-500 mt-1">${hint}</p>`:''}</div>`;
 const pwField=(label,name,ac,hint='')=>`<div>${L(label,name)}<div class="relative mt-1"><input id="${name}" name="${name}" type="password" autocomplete="${ac}" required minlength="8" class="${inp} pr-11"><button type="button" data-eye="${name}" aria-label="Show password" class="absolute right-1.5 top-1/2 -translate-y-1/2 p-1.5 rounded-md text-slate-400 hover:text-slate-700">${svg(EYE)}</button></div>${hint?`<p class="text-xs text-slate-500 mt-1">${hint}</p>`:''}</div>`;
 
-let mode=new URLSearchParams(location.search).get('mode')==='register'?'register':'login';
+const QS=new URLSearchParams(location.search),RESET=QS.get('reset')||'';   // ?reset=<token> comes from the password-reset email
+let mode=RESET?'reset':QS.get('mode')==='register'?'register':QS.get('mode')==='forgot'?'forgot':'login';
 let sel=C.find(c=>c.i==='NG');   // default country, changeable
 let shown=[],act=-1;
 
 // ---------- page ----------
 function draw(){
+ hideOk();$('#tabs').classList.toggle('hidden',mode==='forgot'||mode==='reset');
+ if(mode==='forgot'||mode==='reset')return drawPw();
  ['login','register'].forEach(m=>$('#t-'+m).className='py-2 rounded-md transition '+(m===mode?'bg-white shadow text-slate-900':'text-slate-500 hover:text-slate-700'));
  const reg=mode==='register';
  $('#ttl').textContent=reg?'Create your account':'Welcome back';
@@ -303,13 +307,30 @@ function draw(){
      <p class="text-xs text-slate-500 mt-1">Enter your number without the country code or leading 0.</p></div>`:'')
  +field('Email address','email','email',reg?'email':'username','required placeholder="you@example.com"')
  +pwField('Password',reg?'password':'password',reg?'new-password':'current-password',reg?'At least 8 characters.':'')
- +(reg?pwField('Confirm password','passwordConfirm','new-password'):'')
+ +(reg?pwField('Confirm password','passwordConfirm','new-password'):'<p class="text-right"><button type="button" id="fp" class="text-sm text-emerald-800 font-medium hover:underline">Forgot password?</button></p>')
  +(reg?`<div class="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900"><p class="text-sm font-semibold">Before you join</p><ul class="list-disc pl-4 mt-1 space-y-0.5"><li>You fund your wallet by bank transfer and upload the receipt. No BVN or NIN needed. Every deposit carries a <b>${naira(FEES.tax)} tax charge</b> (to add ${naira(3000)} you pay ${naira(3000+FEES.tax)}).</li><li>Joining fee: <b>${naira(FEES.join)}</b>, taken from your wallet each time you join a plan.</li><li>Grocery plans run <b>4, 8, 12 or 25 weeks</b>. Your first payment is made the day you join, then every 7 days, <b>before 12:00 noon</b> on each due day (late = double); payouts open after the days shown on each plan (e.g. 30 for 4 weeks). Each plan you join gives you a <b>plan code</b>, usable once (by you or someone you share it with) between the days shown on the plan.</li><li>One-time t-shirt fee: <b>${naira(FEES.shirt)}</b>, only required when you request a payout. Payout clearance fee: <b>${naira(FEES.clearance)}</b> per request.</li><li>To request a payout you need <b>another plan that has been running for at least 2 weeks</b>.</li></ul></div>
   <label class="flex items-start gap-2 text-sm text-slate-700 cursor-pointer"><input id="terms" type="checkbox" class="mt-0.5 w-4 h-4 shrink-0 accent-emerald-700"><span>I have read and accept the <a href="terms.html" target="_blank" class="text-emerald-800 underline">Terms and Conditions</a>, including these fees.</span></label>`:'')
  +`<button id="go" class="${btn} w-full py-2.5 mt-1">${reg?'Create account':'Log in'}</button>`;
  hideErr();
- document.querySelectorAll('[data-eye]').forEach(b=>b.onclick=()=>{const i=$('#'+b.dataset.eye),show=i.type==='password';i.type=show?'text':'password';b.innerHTML=svg(show?EYE_OFF:EYE);b.setAttribute('aria-label',show?'Hide password':'Show password')});
+ if($('#fp'))$('#fp').onclick=()=>{const em=($('#email')||{}).value||'';mode='forgot';draw();if(em)$('#email').value=em;$('#email').focus()};
+ eyes();
  if(reg)initCountry();
+}
+function eyes(){
+ document.querySelectorAll('[data-eye]').forEach(b=>b.onclick=()=>{const i=$('#'+b.dataset.eye),show=i.type==='password';i.type=show?'text':'password';b.innerHTML=svg(show?EYE_OFF:EYE);b.setAttribute('aria-label',show?'Hide password':'Show password')});
+ }
+
+// ---------- forgotten password ----------
+function drawPw(){
+ const fg=mode==='forgot';
+ $('#ttl').textContent=fg?'Forgot your password?':'Choose a new password';
+ $('#sub').textContent=fg?'Enter the email address on your account and we will email you a link to reset your password.':'Enter your new password twice. You will then log in with it.';
+ $('#f').innerHTML=(fg?field('Email address','email','email','username','required placeholder="you@example.com"')
+  :pwField('New password','password','new-password','At least 8 characters.')+pwField('Confirm new password','passwordConfirm','new-password'))
+  +`<button id="go" class="${btn} w-full py-2.5 mt-1">${fg?'Send reset link':'Save new password'}</button>`;
+ $('#alt').innerHTML='Remembered it? <button type="button" id="sw" class="text-emerald-800 font-medium hover:underline">Back to log in</button>';
+ $('#sw').onclick=()=>{mode='login';if(RESET)history.replaceState(null,'',location.pathname);draw()};
+ hideErr();eyes();
 }
 
 // ---------- searchable country picker ----------
@@ -345,15 +366,39 @@ function initCountry(){
 // ---------- feedback ----------
 const showErr=m=>{const e=$('#err');e.textContent=m;e.classList.remove('hidden')};
 const hideErr=()=>{const e=$('#err');e.textContent='';e.classList.add('hidden')};
-const busy=on=>{const b=$('#go');b.disabled=on;b.classList.toggle('opacity-70',on);b.textContent=on?'Please wait…':(mode==='register'?'Create account':'Log in')};
+const showOk=m=>{const e=$('#ok');e.innerHTML=m;e.classList.remove('hidden')};
+const hideOk=()=>{const e=$('#ok');e.innerHTML='';e.classList.add('hidden')};
+const LBL={register:'Create account',login:'Log in',forgot:'Send reset link',reset:'Save new password'};
+const busy=on=>{const b=$('#go');b.disabled=on;b.classList.toggle('opacity-70',on);b.textContent=on?'Please wait…':LBL[mode]};
 
 // ---------- submit ----------
 $('#t-login').onclick=()=>{mode='login';draw()};
 $('#t-register').onclick=()=>{mode='register';draw()};
 $('#f').onsubmit=async e=>{
- e.preventDefault();hideErr();
+ e.preventDefault();hideErr();hideOk();
  const d=Object.fromEntries(new FormData(e.target));
  const email=(d.email||'').trim();
+ if(mode==='forgot'||mode==='reset'){
+  try{
+   if(mode==='forgot'){
+    if(!/^\S+@\S+\.\S+$/.test(email))throw new Error('Enter the email address on your account.');
+    busy(true);await pb.collection('users').requestPasswordReset(email);busy(false);
+    showOk('If an account uses <b>'+esc(email)+'</b>, a reset link is on its way. Check your inbox (and spam folder). The link expires in 30 minutes.');
+   }else{
+    if((d.password||'').length<8)throw new Error('Password must be at least 8 characters.');
+    if(d.password!==d.passwordConfirm)throw new Error('Passwords do not match.');
+    busy(true);await pb.collection('users').confirmPasswordReset(RESET,d.password,d.passwordConfirm);
+    history.replaceState(null,'',location.pathname);mode='login';draw();
+    showOk('Your password has been changed. Log in with your new password.');
+   }
+  }catch(x){
+   busy(false);
+   if(mode==='reset'&&x.status===400&&x.response?.data?.token){showErr('This reset link is invalid, already used or expired.');$('#alt').innerHTML='<button type="button" id="again" class="text-emerald-800 font-medium hover:underline">Send me a new link</button>';$('#again').onclick=()=>{history.replaceState(null,'',location.pathname);mode='forgot';draw()};return}
+   const m=Object.values(x.response?.data||{}).map(v=>v.message).join(' ');
+   showErr(x.status===0?'Can\u2019t reach the server. Check your internet connection and try again.':x.status===429?'Too many attempts. Wait a few minutes and try again.':mode==='reset'&&x.status===400?(m||'This reset link is invalid or has expired. Ask for a new one.'):(m||x.message));
+  }
+  return;
+ }
  try{
   if(!email||!d.password)throw new Error('Enter your email and password.');
   if(mode==='register'){
