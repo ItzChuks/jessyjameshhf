@@ -82,26 +82,33 @@ function pay(app, uid, type, body) {
   }
 
   // payout details come from the member's profile (Profile page), never from the request
+  // A group (several memberships joined together) is paid out as a whole: one request covers every membership in it.
   const sid = String(body.subscription || ""), u = app.findRecordById("users", uid);
+  let first; try { first = app.findRecordById("subscriptions", sid); } catch (_) { throw new BadRequestError("Subscription not found."); }
+  if (first.getString("user") !== uid) throw new BadRequestError("That is not your plan.");
+  const members = W.groupOf(app, first).filter(m => m.getString("status") !== "cancelled");
   const P = { name: u.getString("bank_account_name"), bank: u.getString("bank_name"), acct: u.getString("bank_account_number"), addr: u.getString("address") };
-  const why = payoutProblem(app, uid, sid);
-  if (why) throw new BadRequestError(why);
+  members.forEach(m => { const why = payoutProblem(app, uid, m.id); if (why) throw new BadRequestError(members.length > 1 ? "Not every plan in this group can be paid out yet: " + why : why); });
   if (!P.name || !P.bank || !/^\d{10}$/.test(P.acct) || !P.addr) throw new BadRequestError(PROFILE_MSG);
   const details = P.name + " · " + P.bank + " · " + P.acct + " · " + P.addr;   // a copy kept on the request, in case the profile changes later
-  // the clearance fee is paid once per plan: a plan that has already paid it (e.g. after a rejected request) is not charged again
-  const paid = clearancePaid(app, sid);
-  if (!paid) {
-    short(FEES.clearance);
-    const pl = app.findRecordById("plans", app.findRecordById("subscriptions", sid).getString("plan")).getString("name");
-    W.post(app, uid, -FEES.clearance, "clearance", "Payout clearance fee · " + pl, { subscription: sid });
-    const s = app.findRecordById("subscriptions", sid);
-    s.set("clearance_paid_at", new Date().toISOString().replace("T", " ")); app.save(s);   // shown to the admin as "Clearance paid"
-  }
-  const po = new Record(app.findCollectionByNameOrId("payouts"));
-  po.set("user", uid); po.set("subscription", sid); po.set("note", details); po.set("status", "pending");
-  app.save(po);
-  if (!paid) fee(FEES.clearance, { subscription: sid, details });
-  return { clearanceCharged: !paid };
+  // the clearance fee is paid once per plan: plans that already paid it (e.g. after a rejected request) are not charged again
+  const unpaid = members.filter(m => !clearancePaid(app, m.id));
+  short(FEES.clearance * unpaid.length);
+  const pl = app.findRecordById("plans", first.getString("plan")).getString("name");
+  const gid = members.length > 1 ? first.getString("group_id") : "";
+  members.forEach((m, k) => {
+    if (unpaid.includes(m)) {
+      W.post(app, uid, -FEES.clearance, "clearance", "Payout clearance fee · " + pl, { subscription: m.id });
+      const s2 = app.findRecordById("subscriptions", m.id);
+      s2.set("clearance_paid_at", new Date().toISOString().replace("T", " ")); app.save(s2);   // shown to the admin as "Clearance paid"
+      fee(FEES.clearance, { subscription: m.id, details });
+    }
+    const po = new Record(app.findCollectionByNameOrId("payouts"));
+    po.set("user", uid); po.set("subscription", m.id); po.set("note", details); po.set("status", "pending");
+    if (gid) { po.set("group_id", gid); po.set("group_lead", k === 0); po.set("group_size", k === 0 ? members.length : 0); }
+    app.save(po);
+  });
+  return { clearanceCharged: unpaid.length, plans: members.length };
 }
 
 module.exports = { FEES, SHIRT_MSG, PROFILE_MSG, NEED_PLAN_MSG, payoutProblem, runningElsewhere, clearancePaid, pay };

@@ -73,6 +73,14 @@ Online payment partners (Flutterwave, Paystack, Monnify) are **paused**. Members
 
 To bring the online partners back later, set `ONLINE_PAYMENTS=on` (their code is still in gateways.js / deposits.js).
 
+## Plan groups
+Joining the same plan several times at once (or one "Add existing plans" row with How many times > 1) makes ONE group:
+one card, one plan code (`subscriptions.group_id`, `group_lead`, `group_size`). Each membership in it still has its own
+payments, so automatic collection, penalties and payouts work as before. A group's code carries `group_size` plans: whoever
+uses it joins exactly that many (members cannot reduce it). Payout, Edit, Complete and Cancel act on the whole group; a group
+payout charges the clearance fee once per plan and its payout requests are shown and marked paid together.
+Plans joined before groups existed stay single.
+
 ## Admin tools added
 - **Add existing plans** (member page): for members who were saving manually. One row per plan (add as many rows as needed, and
   "How many times" for the same plan held several times): how long it has been running and the amount already paid. All rows are

@@ -119,7 +119,7 @@ function createMockPB() {
       collect(aid); save(); return { demo: true, amount: a, fee: 100, total: a + 100 };
     }
     if (path.endsWith('/wallet/verify')) { const d = (db.deposits || []).find(x => x.tx_ref === b.tx_ref); return d ? { status: d.status, amount: d.amount, fee: d.fee, total: d.total } : { status: 'pending' }; }
-    if (path.endsWith('/code/check')) return codeState(b.code);
+    if (path.endsWith('/code/check')) { const r = codeState(b.code); return Object.assign({}, r, { rec: undefined, count: r.rec && r.rec.group_size > 1 ? r.rec.group_size : 1 }); }
     // ---- bank transfers with a receipt (demo: every receipt "matches" and is credited at once; the real check is in pb_hooks/transfers.js) ----
     db.settings = db.settings || { bank_name: 'GTBank (demo)', account_number: '0123456789', account_name: 'Jessy James Helping Hands Foundation', transfer_note: '', auto_approve: true, auto_max: 200000, max_age_days: 2 };
     db.deposits = db.deposits || [];
@@ -225,20 +225,22 @@ function createMockPB() {
       else if (t === 'join') {
         const pl = db.plans.find(p => p.id === b.plan); if (!pl || pl.active === false) throw new Error('That plan is not open for enrolment.');
         const L = [...new Set([b.code, ...(b.codes || [])].filter(x => String(x || '').trim()).map(norm))];
-        let q = Math.floor(+b.qty || 1); if (L.length > q) q = L.length; if (!(q >= 1 && q <= 50)) throw new Error('You can join a plan 1 to 50 times at once.');
         const CS = L.map(k => { const x = codeState(k); if (x.status !== 'valid') throw new Error(k + ': ' + x.message); return x; });
+        const fromCodes = CS.reduce((a, x) => a + ((x.rec.group_size > 1) ? x.rec.group_size : 1), 0);
+        const q = CS.length ? fromCodes : Math.floor(+b.qty || 1); if (!(q >= 1 && q <= 50)) throw new Error('You can join a plan 1 to 50 times at once.');
         const c = catchupCount({ created: now() }, pl), each = amt + c * pl.amount + (isSeasonal(pl) ? 0 : pl.amount);   // fee + first payment
         short(each * q);
-        const ids = [];
+        const joinedWith = []; CS.forEach(x => { for (let k = 0; k < ((x.rec.group_size > 1) ? x.rec.group_size : 1); k++) joinedWith.push(x.code); });
+        const gid = q > 1 ? uid() : '', ids = [];
         for (let i = 0; i < q; i++) {
-          const s = { id: uid(), created: now(), user: aid, plan: pl.id, status: 'active' };
-          if (CS[i]) s.joined_code = CS[i].code; giveCode(s, pl);
+          const s = { id: uid(), created: now(), user: aid, plan: pl.id, status: 'active', group_id: gid, group_lead: !!gid && i === 0, group_size: gid && i === 0 ? q : 0 };
+          if (joinedWith[i]) s.joined_code = joinedWith[i]; if (i === 0) giveCode(s, pl);
           db.subscriptions.push(s); emit('subscriptions', 'create', s); ids.push(s.id);
           post(aid, -amt, 'join', 'Joining fee · ' + pl.name, { plan: pl.id, subscription: s.id });
           const f = { id: uid(), created: now(), user: aid, type: 'join', amount: amt, status: 'confirmed', plan: pl.id, subscription: s.id, note: 'Wallet' }; db.fees.push(f); emit('fees', 'create', f);
           if (c) { const p = { id: uid(), created: now(), user: aid, subscription: s.id, amount: c * pl.amount, penalty: 0, installments: c, late_count: 0, note: 'Catch-up · ' + c + ' instalments', status: 'confirmed' }; db.payments.push(p); emit('payments', 'create', p); post(aid, -c * pl.amount, 'catchup', 'Catch-up · ' + pl.name, { plan: pl.id, subscription: s.id }); }
         }
-        CS.forEach((cs, i) => { Object.assign(cs.rec, { code_used_by: aid, code_used_name: me.name || me.email, code_used_at: now(), code_used_sub: ids[i] }); emit('subscriptions', 'update', cs.rec); });
+        let k = 0; CS.forEach(x => { Object.assign(x.rec, { code_used_by: aid, code_used_name: me.name || me.email, code_used_at: now(), code_used_sub: ids[k] }); emit('subscriptions', 'update', x.rec); k += (x.rec.group_size > 1 ? x.rec.group_size : 1); });
         out = { subscription: ids[0], subscriptions: ids, count: q, codesUsed: CS.length }; collect(aid);
       } else {
         const planOf = s => db.plans.find(p => p.id === s.plan) || {};

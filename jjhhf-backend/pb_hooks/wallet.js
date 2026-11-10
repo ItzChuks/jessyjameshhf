@@ -126,7 +126,7 @@ function codeState(app, code, now = new Date()) {
   let rec; try { rec = app.findFirstRecordByData("subscriptions", "code", c); } catch (_) { return { status: "invalid", code: c, message: "That code does not exist. Check it and try again." }; }
   const from = R.parseTs(rec.getString("code_from")), until = R.parseTs(rec.getString("code_until"));
   let planName = ""; try { planName = app.findRecordById("plans", rec.getString("plan")).getString("name"); } catch (_) { }
-  const base = { rec, code: c, from, until, plan: planName };
+  const base = { rec, code: c, from, until, plan: planName, count: rec.getInt("group_size") || 1 };   // a group's code carries all its plans
   if (rec.getString("code_used_at")) return Object.assign(base, { status: "used", message: "This code has already been used." });
   if (rec.getString("code_admin") === "used") return Object.assign(base, { status: "used", message: "This code has already been used." });
   if (rec.getString("code_admin") === "expired") return Object.assign(base, { status: "expired", message: "This code has expired." });
@@ -140,6 +140,8 @@ function codeState(app, code, now = new Date()) {
 // that fell due since 1 January (no penalty). All or nothing: if the wallet cannot cover it, nothing is created.
 // An optional plan code (from any member's plan, including one shared by another member) can be given; it must be open
 // (between its start and expiry) and unused, and is then marked as used by this member. Every new membership gets its own code.
+// opts (used by joinMany): groupId, lead, size (group fields) · noCode (members of a group other than the lead get no code of their own)
+//   · joinedCode (the plan code this membership was joined with; marked as used by joinMany)
 function joinPlan(app, uid, planId, code, opts = {}) {
   let plan; try { plan = app.findRecordById("plans", String(planId || "")); } catch (_) { throw new BadRequestError("That plan does not exist."); }
   if (!plan.getBool("active")) throw new BadRequestError("That plan is not open for enrolment.");
@@ -149,8 +151,10 @@ function joinPlan(app, uid, planId, code, opts = {}) {
   const sub = new Record(app.findCollectionByNameOrId("subscriptions"));
   sub.set("user", uid); sub.set("plan", plan.id); sub.set("status", "active");
   if (cs) sub.set("joined_code", cs.code);
+  if (opts.joinedCode) sub.set("joined_code", opts.joinedCode);
+  if (opts.groupId) { sub.set("group_id", opts.groupId); sub.set("group_lead", !!opts.lead); sub.set("group_size", opts.lead ? opts.size : 0); }
   app.save(sub);                                                 // "created" is now the joined time
-  const win = R.codeWindow(sub.getString("created"), plan.getInt("code_from_day"), plan.getInt("code_until_day"));
+  const win = opts.noCode ? null : R.codeWindow(sub.getString("created"), plan.getInt("code_from_day"), plan.getInt("code_until_day"));
   if (win) { sub.set("code", newCode(app)); sub.set("code_from", ts(win.from)); sub.set("code_until", ts(win.until)); app.save(sub); }
   const s = { id: sub.id, created: sub.getString("created") };
   // joining = the joining fee + the first payment (due today), all or nothing
@@ -191,24 +195,49 @@ function joinPlan(app, uid, planId, code, opts = {}) {
 // Each new membership uses one code, in order; joining fewer times than the number of codes is raised to that number.
 const MAX_SLOTS = 50;   // the most memberships (and plan codes) in ONE join; no limit on how many a member holds
 function joinMany(app, uid, planId, code, qty, codes) {
+  // plan codes: each one carries the number of plans of the group it came from; using it joins EXACTLY that many (not fewer)
   const list = [];
   [code].concat(Array.isArray(codes) ? codes : []).forEach(c => { if (String(c || "").trim()) { const k = normCode(c); if (!list.includes(k)) list.push(k); } });
-  if (list.length > MAX_SLOTS) throw new BadRequestError("You can use at most " + MAX_SLOTS + " codes at once.");
-  let n = Math.floor(Number(qty || 1));
-  if (n >= 1 && list.length > n) n = list.length;
+  const used = list.map(k => { const cs = codeState(app, k); if (cs.status !== "valid") throw new BadRequestError(k + ": " + cs.message); return cs; });
+  const fromCodes = used.reduce((a, cs) => a + cs.count, 0);
+  let n = used.length ? fromCodes : Math.floor(Number(qty || 1));
+  if (used.length && n > MAX_SLOTS) throw new BadRequestError("These codes carry " + n + " plans; codes for at most " + MAX_SLOTS + " plans can be used at once.");
   if (!(n >= 1 && n <= MAX_SLOTS)) throw new BadRequestError("You can join a plan 1 to " + MAX_SLOTS + " times at once.");
   let plan; try { plan = app.findRecordById("plans", String(planId || "")); } catch (_) { throw new BadRequestError("That plan does not exist."); }
   if (!plan.getBool("active")) throw new BadRequestError("That plan is not open for enrolment.");
   const pl = R.planObj(plan), s = { id: "", created: ts(new Date()) };
   const c = R.catchupCount(s, pl), first = R.isSeasonal(pl) ? 0 : pl.amount, each = FEES.join + c * pl.amount + first, total = each * n, bal = balanceOf(app, uid);
-  if (n > 1 && bal < total) {
-    throw new BadRequestError("Your wallet needs " + naira(total) + " to join this plan " + n + " times (" + naira(each) + " each: joining fee " + naira(FEES.join) + (first ? " + first payment " + naira(first) : "") + (c ? " + catch-up " + naira(c * pl.amount) : "") + "). You have " + naira(bal) + ". Please deposit " + naira(total - bal) + ".");
+  if (bal < total) {
+    throw new BadRequestError("Your wallet needs " + naira(total) + " to join this plan" + (n > 1 ? " " + n + " times (" + naira(each) + " each" : " (") + ": joining fee " + naira(FEES.join) + (first ? " + first payment " + naira(first) : "") + (c ? " + catch-up " + naira(c * pl.amount) : "") + "). You have " + naira(bal) + ". Please deposit " + naira(total - bal) + ".");
   }
-  list.forEach(k => { const cs = codeState(app, k); if (cs.status !== "valid") throw new BadRequestError(k + ": " + cs.message); });
+  // the code each new membership is joined with: the first code covers its first "count" memberships, and so on
+  const joinedWith = []; used.forEach(cs => { for (let k = 0; k < cs.count; k++) joinedWith.push(cs.code); });
+  const groupId = n > 1 ? $security.randomStringWithAlphabet(15, "abcdefghijklmnopqrstuvwxyz0123456789") : "";
   const subs = [];
-  for (let i = 0; i < n; i++) subs.push(joinPlan(app, uid, plan.id, list[i] || "", { noCollect: true }).subscription);
+  for (let i = 0; i < n; i++) subs.push(joinPlan(app, uid, plan.id, "", { noCollect: true, groupId, lead: i === 0, size: n, noCode: i > 0, joinedCode: joinedWith[i] || "" }).subscription);
+  markCodesUsed(app, used, uid, subs);
   collect(app, uid);                                             // today's instalments, if the wallet still has enough
-  return { subscription: subs[0], subscriptions: subs, count: n, codesUsed: list.length };
+  return { subscription: subs[0], subscriptions: subs, count: n, codesUsed: used.length, group: groupId };
+}
+
+// Marks plan codes as used by this member (the owner and the admin see who used them, when, and the plans joined with them).
+function markCodesUsed(app, used, uid, subs) {
+  const me = app.findRecordById("users", uid);
+  let k = 0;
+  used.forEach(cs => {
+    const owner = app.findRecordById("subscriptions", cs.rec.id);
+    if (owner.getString("code_used_at") || owner.getString("code_admin")) throw new BadRequestError(cs.code + ": this code can no longer be used.");
+    owner.set("code_used_by", uid); owner.set("code_used_name", me.getString("name") || me.getString("email"));
+    owner.set("code_used_at", ts(new Date())); owner.set("code_used_sub", subs[k] || "");
+    app.save(owner);
+    k += cs.count;
+  });
+}
+
+// All memberships of the group a membership belongs to (just itself when it is single).
+function groupOf(app, rec) {
+  const g = rec.getString("group_id");
+  return g ? app.findRecordsByFilter("subscriptions", "group_id = {:g}", "created", 0, 0, { g }) : [rec];
 }
 
 // ---- plans brought over from manual records (admin) ----
@@ -245,11 +274,13 @@ function importPlan(app, uid, planId, days, amountPaid, note, opts = {}) {
   sub.set("user", uid); sub.set("plan", plan.id); sub.set("status", "active"); sub.set("imported", true);
   sub.set("import_note", String(note || "").trim().slice(0, 300) || "Brought over from manual records");
   if (!opts.chargePenalty) sub.set("no_penalty_before", ts(new Date()));   // payments overdue at this moment are collected without the penalty
+  if (opts.groupId) { sub.set("group_id", opts.groupId); sub.set("group_lead", !!opts.lead); sub.set("group_size", opts.lead ? opts.size : 0); }
+  if (opts.joinedCode) sub.set("joined_code", opts.joinedCode);
   app.save(sub);
   // "created" is filled in automatically on save; move it back to the real joining day
   app.db().newQuery("UPDATE {{subscriptions}} SET [[created]] = {:c} WHERE [[id]] = {:id}").bind({ c: ts(start), id: sub.id }).execute();
   const rec = app.findRecordById("subscriptions", sub.id), s = { id: rec.id, created: rec.getString("created"), no_penalty_before: rec.getString("no_penalty_before") };
-  const win = opts.code === "none" ? null : opts.code ? codeDatesFromAdmin(opts.code) : R.codeWindow(s.created, plan.getInt("code_from_day"), plan.getInt("code_until_day"));
+  const win = opts.code === "none" || opts.noCode ? null : opts.code ? codeDatesFromAdmin(opts.code) : R.codeWindow(s.created, plan.getInt("code_from_day"), plan.getInt("code_until_day"));
   if (win) { rec.set("code", newCode(app)); rec.set("code_from", ts(win.from)); rec.set("code_until", ts(win.until)); }
   if (k > 0) {
     const p = new Record(app.findCollectionByNameOrId("payments"));
@@ -280,14 +311,29 @@ function importMany(app, uid, items, note, chargePenalty, code) {
   Object.keys(perPlan).forEach(pid => {
     let plan; try { plan = app.findRecordById("plans", String(pid || "")); } catch (_) { throw new BadRequestError("One of the plans does not exist."); }
   });
+  // each row is one group (one plan code); a row may record the plan code the member joined with (its plan count must match)
+  const codesUsed = [];
+  items.forEach((it, i) => {
+    const c = Math.floor(Number(it.count || 1));
+    it._group = c > 1 ? $security.randomStringWithAlphabet(15, "abcdefghijklmnopqrstuvwxyz0123456789") : "";
+    if (String(it.use_code || "").trim()) {
+      const cs = codeState(app, it.use_code);
+      if (cs.status !== "valid") throw new BadRequestError("Row " + (i + 1) + ": " + cs.code + ": " + cs.message);
+      if (cs.count !== c) throw new BadRequestError("Row " + (i + 1) + ": code " + cs.code + " carries " + cs.count + " plan" + (cs.count === 1 ? "" : "s") + ", so How many times must be " + cs.count + ".");
+      if (codesUsed.some(x => x.code === cs.code)) throw new BadRequestError("Row " + (i + 1) + ": code " + cs.code + " is already used in another row.");
+      it._cs = cs; codesUsed.push(cs);
+    }
+  });
   const out = { added: 0, paid: 0, subscriptions: [] };
   items.forEach((it, i) => {
     for (let k = 0; k < Math.floor(Number(it.count || 1)); k++) {
       let r;
-      try { r = importPlan(app, uid, it.plan, it.days, it.amount_paid, it.note || note, { noCollect: true, chargePenalty: !!chargePenalty, code }); }
+      try { r = importPlan(app, uid, it.plan, it.days, it.amount_paid, it.note || note, { noCollect: true, chargePenalty: !!chargePenalty, code, groupId: it._group, lead: k === 0, size: Math.floor(Number(it.count || 1)), noCode: k > 0, joinedCode: it._cs ? it._cs.code : "" }); }
       catch (err) { const m = String((err && err.message) || err).replace(/^[\s\S]*?BadRequestError:\s*/, ""); throw new BadRequestError("Row " + (i + 1) + ": " + m); }
       out.added++; out.paid += r.paid; out.subscriptions.push(r.subscription);
+      if (k === 0) it._first = r.subscription;
     }
+    if (it._cs) markCodesUsed(app, [it._cs], uid, [it._first]);
   });
   out.collected = collect(app, uid);                              // payments already due, if the wallet can pay them
   return out;
@@ -348,6 +394,21 @@ function editPlan(app, sid, changes) {
   return { subscription: rec.id, paid: after.getInt("paid_count"), payments: n, collected: took };
 }
 
+// A group is edited / completed / cancelled as a whole.
+function editGroup(app, sid, changes) {
+  let rec; try { rec = app.findRecordById("subscriptions", String(sid || "")); } catch (_) { throw new BadRequestError("Plan not found."); }
+  let out = null, collected = 0;
+  groupOf(app, rec).forEach(m => { const r = editPlan(app, m.id, changes); collected += r.collected; out = out || r; });
+  return Object.assign(out, { collected, group_size: groupOf(app, rec).length });
+}
+function setGroupStatus(app, sid, status) {
+  if (!["active", "completed", "cancelled"].includes(status)) throw new BadRequestError("Unknown status.");
+  let rec; try { rec = app.findRecordById("subscriptions", String(sid || "")); } catch (_) { throw new BadRequestError("Plan not found."); }
+  const list = groupOf(app, rec);
+  list.forEach(m => { m.set("status", status); app.save(m); });
+  return { updated: list.length };
+}
+
 // Runs fn inside a transaction. A BadRequestError thrown inside loses its message on the way out of the transaction, so it is re-thrown here
 // with the same message (the member sees e.g. "Your wallet needs ₦149,000 ...").
 function inTx(fn) {
@@ -358,4 +419,4 @@ function inTx(fn) {
   }
 }
 
-module.exports = { FEES, MAX_SLOTS, naira, post, credit, collect, joinPlan, joinMany, importPlan, importMany, editPlan, balanceOf, inTx, syncSub, ts, DONE, codeState, normCode };
+module.exports = { FEES, MAX_SLOTS, naira, post, credit, collect, joinPlan, joinMany, importPlan, importMany, editPlan, editGroup, setGroupStatus, groupOf, markCodesUsed, balanceOf, inTx, syncSub, ts, DONE, codeState, normCode };

@@ -179,7 +179,7 @@ cronAdd("jjhhf_deposit_check", "*/10 * * * *", () => {
 routerAdd("POST", "/api/jjhhf/code/check", (e) => {
   const W = require(`${__hooks}/wallet.js`);
   const c = W.codeState($app, (e.requestInfo().body || {}).code);
-  return e.json(200, { status: c.status, code: c.code, message: c.message, plan: c.plan || "", from: c.from ? c.from.toISOString() : "", until: c.until ? c.until.toISOString() : "" });
+  return e.json(200, { status: c.status, code: c.code, count: c.count || 1, message: c.message, plan: c.plan || "", from: c.from ? c.from.toISOString() : "", until: c.until ? c.until.toISOString() : "" });
 }, $apis.requireAuth());
 
 // 9) Admin: change a plan code's status. status: "used" | "expired" (marked by the foundation) | "auto" (restore: back to its normal dates)
@@ -328,7 +328,7 @@ routerAdd("POST", "/api/jjhhf/admin/edit-plan", (e) => {
   if (e.auth.getString("role") !== "admin") throw new ForbiddenError("Admins only.");
   const b = e.requestInfo().body || {};
   let out = {};
-  W.inTx((tx) => { out = W.editPlan(tx, String(b.subscription || ""), { days: b.days, amount_paid: b.amount_paid, charge_penalty: b.charge_penalty === undefined ? undefined : !!b.charge_penalty, note: b.note }); });
+  W.inTx((tx) => { out = W.editGroup(tx, String(b.subscription || ""), { days: b.days, amount_paid: b.amount_paid, charge_penalty: b.charge_penalty === undefined ? undefined : !!b.charge_penalty, note: b.note }); });
   return e.json(200, out);
 }, $apis.requireAuth());
 
@@ -371,4 +371,30 @@ routerAdd("POST", "/api/jjhhf/admin/delete-user", (e) => {
   });
   console.log("jjhhf: admin", e.auth.id, "permanently deleted member", uid, JSON.stringify(removed));
   return e.json(200, { ok: true, name, removed });
+}, $apis.requireAuth());
+
+// 22) Admin: complete / cancel / reactivate a plan; a group changes as a whole.
+routerAdd("POST", "/api/jjhhf/admin/plan-status", (e) => {
+  const W = require(`${__hooks}/wallet.js`);
+  if (e.auth.getString("role") !== "admin") throw new ForbiddenError("Admins only.");
+  const b = e.requestInfo().body || {};
+  let out = {};
+  W.inTx((tx) => { out = W.setGroupStatus(tx, String(b.subscription || ""), String(b.status || "")); });
+  return e.json(200, out);
+}, $apis.requireAuth());
+
+// 23) Admin: mark a payout request paid or rejected; a group's requests change together.
+routerAdd("POST", "/api/jjhhf/admin/payout-status", (e) => {
+  const W = require(`${__hooks}/wallet.js`);
+  if (e.auth.getString("role") !== "admin") throw new ForbiddenError("Admins only.");
+  const b = e.requestInfo().body || {}, st = String(b.status || "");
+  if (!["confirmed", "rejected"].includes(st)) throw new BadRequestError("Choose paid or rejected.");
+  let n = 0;
+  W.inTx((tx) => {
+    let p; try { p = tx.findRecordById("payouts", String(b.payout || "")); } catch (_) { throw new BadRequestError("Payout request not found."); }
+    const g = p.getString("group_id");
+    const list = g ? tx.findRecordsByFilter("payouts", "group_id = {:g} && status = 'pending'", "", 0, 0, { g }) : [p];
+    list.forEach(x => { if (x.getString("status") !== "pending") return; x.set("status", st); tx.save(x); n++; });
+  });
+  return e.json(200, { updated: n });
 }, $apis.requireAuth());
