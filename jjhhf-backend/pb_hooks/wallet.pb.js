@@ -294,7 +294,7 @@ routerAdd("POST", "/api/jjhhf/admin/import-plan", (e) => {
   // b.items = [{ plan, days, amount_paid, count, note }] adds several at once; the single-plan form (plan, days, amount_paid) still works
   // b.code_mode: "custom" (b.code_from / b.code_until, "YYYY-MM-DD") | "none" | left out (the plan's usual code days)
   const code = b.code_mode === "custom" ? { from: String(b.code_from || ""), until: String(b.code_until || "") } : b.code_mode === "none" ? "none" : undefined;
-  W.inTx((tx) => { out = Array.isArray(b.items) ? W.importMany(tx, String(b.user || ""), b.items, b.note, !!b.charge_penalty, code) : W.importPlan(tx, String(b.user || ""), b.plan, b.days, b.amount_paid, b.note, { chargePenalty: !!b.charge_penalty, code }); });
+  W.inTx((tx) => { out = Array.isArray(b.items) ? W.importMany(tx, String(b.user || ""), b.items, b.note, !!b.charge_penalty, code, !!b.charge_join_fee) : W.importPlan(tx, String(b.user || ""), b.plan, b.days, b.amount_paid, b.note, { chargePenalty: !!b.charge_penalty, chargeJoinFee: !!b.charge_join_fee, code }); });
   return e.json(200, out);
 }, $apis.requireAuth());
 
@@ -358,15 +358,7 @@ routerAdd("POST", "/api/jjhhf/admin/delete-user", (e) => {
     if (u.getString("role") === "admin") throw new BadRequestError("An admin account cannot be deleted here.");
     if (!u.getBool("suspended")) throw new BadRequestError("Suspend the account first; only suspended accounts can be deleted.");
     name = u.getString("name") || u.getString("email");
-    // codes of OTHER members that this member used: keep the other member's record, forget who used it
-    tx.findRecordsByFilter("subscriptions", "code_used_by = {:u} && user != {:u}", "", 0, 0, { u: uid }).forEach(r => {
-      r.set("code_used_by", ""); r.set("code_used_name", "Deleted member"); tx.save(r);
-    });
-    ["payments", "payouts", "fees", "wallet_txs", "deposits", "subscriptions"].forEach(c => {
-      const list = tx.findRecordsByFilter(c, "user = {:u}", "", 0, 0, { u: uid });
-      list.forEach(r => tx.delete(r));                             // deleting a deposit also deletes its receipt file
-      removed[c] = list.length;
-    });
+    removed = W.wipeMemberData(tx, uid, "Deleted member");
     tx.delete(u);
   });
   console.log("jjhhf: admin", e.auth.id, "permanently deleted member", uid, JSON.stringify(removed));
@@ -397,4 +389,28 @@ routerAdd("POST", "/api/jjhhf/admin/payout-status", (e) => {
     list.forEach(x => { if (x.getString("status") !== "pending") return; x.set("status", st); tx.save(x); n++; });
   });
   return e.json(200, { updated: n });
+}, $apis.requireAuth());
+
+// 24) Admin: reset a SUSPENDED member's account. Clears plans (and plan codes), payments, payouts, fees, wallet history, deposits and
+//     receipt files, and sets the wallet to zero. Keeps the account with name, email, phone, country, address and payout details.
+//     The account stays suspended; the admin can restore it later. b.clear_shirt also clears the t-shirt registration.
+routerAdd("POST", "/api/jjhhf/admin/reset-user", (e) => {
+  const W = require(`${__hooks}/wallet.js`);
+  if (e.auth.getString("role") !== "admin") throw new ForbiddenError("Admins only.");
+  const b = e.requestInfo().body || {}, uid = String(b.user || "");
+  if (String(b.confirm || "") !== "RESET") throw new BadRequestError("Type RESET to confirm.");
+  let removed = {}, name = "";
+  W.inTx((tx) => {
+    let u; try { u = tx.findRecordById("users", uid); } catch (_) { throw new BadRequestError("Member not found."); }
+    if (u.getString("role") === "admin") throw new BadRequestError("An admin account cannot be reset here.");
+    if (!u.getBool("suspended")) throw new BadRequestError("Suspend the account first; only suspended accounts can be reset.");
+    name = u.getString("name") || u.getString("email");
+    removed = W.wipeMemberData(tx, uid, u.getString("name") || "Member (account reset)");
+    const fresh = tx.findRecordById("users", uid);
+    fresh.set("wallet_balance", 0);
+    if (b.clear_shirt) { fresh.set("shirt_paid", false); fresh.set("shirt_paid_at", ""); }
+    tx.save(fresh);
+  });
+  console.log("jjhhf: admin", e.auth.id, "reset member", uid, JSON.stringify(removed));
+  return e.json(200, { ok: true, name, removed });
 }, $apis.requireAuth());

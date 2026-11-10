@@ -151,6 +151,12 @@ function createMockPB() {
       }
       emit('deposits', 'update', d); save(); return { status: d.status, balance: db.users.find(u => u.id === d.user).wallet_balance };
     }
+    if (path.endsWith('/admin/reset-user')) {
+      if (me.role !== 'admin') throw new Error('Admins only.');
+      const u = db.users.find(x => x.id === b.user); if (!u) throw new Error('Member not found.'); if (!u.suspended) throw new Error('Suspend the account first.'); if (b.confirm !== 'RESET') throw new Error('Type RESET to confirm.');
+      const removed = {}; ['payments', 'payouts', 'fees', 'wallet_txs', 'deposits', 'subscriptions'].forEach(c => { const before = (db[c] || []).length; db[c] = (db[c] || []).filter(r => r.user !== u.id); removed[c] = before - db[c].length; });
+      u.wallet_balance = 0; if (b.clear_shirt) { u.shirt_paid = false; u.shirt_paid_at = ''; } emit('users', 'update', u); save(); return { ok: true, name: u.name || u.email, removed };
+    }
     if (path.includes('/admin/delete-user')) {
       if (me.role !== 'admin') throw new Error('Admins only.');
       const C = ['payments', 'payouts', 'fees', 'wallet_txs', 'deposits', 'subscriptions'];
@@ -181,6 +187,7 @@ function createMockPB() {
           else if (b.code_mode !== 'none') giveCode(s, pl);
           db.subscriptions.push(s); emit('subscriptions', 'create', s); ids.push(s.id); added++;
           if (k) { const p = { id: uid(), created: now(), user: b.user, subscription: s.id, amount: paid, penalty: 0, installments: k, late_count: 0, note: 'Brought over from manual records · ' + k + ' payments', status: 'confirmed' }; db.payments.push(p); emit('payments', 'create', p); }
+          if (b.charge_join_fee) post(b.user, -3000, 'join', 'Joining fee · ' + pl.name, { plan: pl.id, subscription: s.id });
         }
       });
       const before = db.payments.length; collect(b.user); save(); return { added, subscriptions: ids, subscription: ids[0], collected: db.payments.length - before };

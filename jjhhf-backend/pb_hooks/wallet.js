@@ -288,6 +288,12 @@ function importPlan(app, uid, planId, days, amountPaid, note, opts = {}) {
     p.set("installments", k); p.set("late_count", 0); p.set("note", "Brought over from manual records · " + k + " payment" + (k === 1 ? "" : "s"));
     app.save(p);
   }
+  if (opts.chargeJoinFee) {                                       // the admin chose to take the joining fee from the wallet
+    post(app, uid, -FEES.join, "join", "Joining fee · " + pl.name, { plan: plan.id, subscription: rec.id });
+    const fee = new Record(app.findCollectionByNameOrId("fees"));
+    fee.set("user", uid); fee.set("type", "join"); fee.set("amount", FEES.join); fee.set("status", "confirmed"); fee.set("plan", plan.id); fee.set("subscription", rec.id); fee.set("note", "Wallet (added by admin)");
+    app.save(fee);
+  }
   rec.set("paid_count", k); rec.set("next_collect", nextCollect(s, pl, k));
   app.save(rec);
   const before = R.stateFromPaid(s, pl, k, new Date());
@@ -297,7 +303,7 @@ function importPlan(app, uid, planId, days, amountPaid, note, opts = {}) {
 
 // Several at once: items = [{ plan, days, amount_paid, count (how many of that same plan, default 1), note }].
 // All or nothing (run inside a transaction). Each row adds 1 to MAX_SLOTS memberships; there is no limit on how many a member holds.
-function importMany(app, uid, items, note, chargePenalty, code) {
+function importMany(app, uid, items, note, chargePenalty, code, chargeJoinFee) {
   if (!Array.isArray(items) || !items.length) throw new BadRequestError("Add at least one plan.");
   const total = items.reduce((a, it) => a + Math.max(0, Math.floor(Number(it.count || 1))), 0);
   if (total < 1) throw new BadRequestError("Add at least one plan.");
@@ -324,11 +330,15 @@ function importMany(app, uid, items, note, chargePenalty, code) {
       it._cs = cs; codesUsed.push(cs);
     }
   });
+  if (chargeJoinFee) {                                            // all or nothing: the wallet must cover every joining fee
+    const need = FEES.join * total, bal = balanceOf(app, uid);
+    if (bal < need) throw new BadRequestError("The member's wallet needs " + naira(need) + " for the joining fees (" + total + " × " + naira(FEES.join) + ") but has " + naira(bal) + ". Credit " + naira(need - bal) + " first, or untick the joining fee.");
+  }
   const out = { added: 0, paid: 0, subscriptions: [] };
   items.forEach((it, i) => {
     for (let k = 0; k < Math.floor(Number(it.count || 1)); k++) {
       let r;
-      try { r = importPlan(app, uid, it.plan, it.days, it.amount_paid, it.note || note, { noCollect: true, chargePenalty: !!chargePenalty, code, groupId: it._group, lead: k === 0, size: Math.floor(Number(it.count || 1)), noCode: k > 0, joinedCode: it._cs ? it._cs.code : "" }); }
+      try { r = importPlan(app, uid, it.plan, it.days, it.amount_paid, it.note || note, { noCollect: true, chargePenalty: !!chargePenalty, chargeJoinFee: !!chargeJoinFee, code, groupId: it._group, lead: k === 0, size: Math.floor(Number(it.count || 1)), noCode: k > 0, joinedCode: it._cs ? it._cs.code : "" }); }
       catch (err) { const m = String((err && err.message) || err).replace(/^[\s\S]*?BadRequestError:\s*/, ""); throw new BadRequestError("Row " + (i + 1) + ": " + m); }
       out.added++; out.paid += r.paid; out.subscriptions.push(r.subscription);
       if (k === 0) it._first = r.subscription;
@@ -409,6 +419,24 @@ function setGroupStatus(app, sid, status) {
   return { updated: list.length };
 }
 
+// ---- admin: wipe a member's activity (used by "Reset account" and "Delete permanently") ----
+// Deletes every plan (and its plan code), payment, payout, fee, wallet history line and deposit (with its receipt file) of a member,
+// inside the caller's transaction. Other members who used one of their plan codes keep their plans ("used by Deleted member").
+// Returns how many records of each kind were deleted.
+const MEMBER_DATA = ["payments", "payouts", "fees", "wallet_txs", "deposits", "subscriptions"];
+function wipeMemberData(app, uid, usedByLabel) {
+  app.findRecordsByFilter("subscriptions", "code_used_by = {:u} && user != {:u}", "", 0, 0, { u: uid }).forEach(r => {
+    r.set("code_used_by", ""); r.set("code_used_name", usedByLabel || "Deleted member"); app.save(r);
+  });
+  const removed = {};
+  MEMBER_DATA.forEach(c => {
+    const list = app.findRecordsByFilter(c, "user = {:u}", "", 0, 0, { u: uid });
+    list.forEach(r => app.delete(r));                             // deleting a deposit also deletes its receipt file
+    removed[c] = list.length;
+  });
+  return removed;
+}
+
 // Runs fn inside a transaction. A BadRequestError thrown inside loses its message on the way out of the transaction, so it is re-thrown here
 // with the same message (the member sees e.g. "Your wallet needs ₦149,000 ...").
 function inTx(fn) {
@@ -419,4 +447,4 @@ function inTx(fn) {
   }
 }
 
-module.exports = { FEES, MAX_SLOTS, naira, post, credit, collect, joinPlan, joinMany, importPlan, importMany, editPlan, editGroup, setGroupStatus, groupOf, markCodesUsed, balanceOf, inTx, syncSub, ts, DONE, codeState, normCode };
+module.exports = { FEES, MAX_SLOTS, naira, post, credit, collect, joinPlan, joinMany, importPlan, importMany, editPlan, editGroup, setGroupStatus, groupOf, markCodesUsed, wipeMemberData, MEMBER_DATA, balanceOf, inTx, syncSub, ts, DONE, codeState, normCode };

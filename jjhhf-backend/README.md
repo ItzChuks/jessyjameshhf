@@ -84,13 +84,16 @@ Plans joined before groups existed stay single.
 ## Admin tools added
 - **Add existing plans** (member page): for members who were saving manually. One row per plan (add as many rows as needed, and
   "How many times" for the same plan held several times): how long it has been running and the amount already paid. All rows are
-  saved together or not at all; "Give each plan a plan code" lets you choose the day the codes open and the day they expire
+  saved together or not at all; "Take the joining fee" deducts ₦3,000 per plan from the wallet (all or nothing); "Give each plan a plan code" lets you choose the day the codes open and the day they expire
   (otherwise the plan's usual code days, counted from the backdated start, would make them expired already); no joining fee is taken and the plan carries on automatically. Payments already due and unpaid are
   collected from the wallet straight away (late ones with the usual penalty), as the preview warns.
 - **Edit** (member page, Plans table, running plans): change how long the plan has been running, the amount paid (not below
   what was paid through the website wallet), whether payments overdue now carry the late penalty, and the note.
 - **Suspend / Restore account** (member page): a suspended member cannot sign in or use the site and sees the reason.
   Their plans keep running.
+- **Reset account** (suspended members only): clears plans and plan codes, payments, payouts, fees, wallet history, deposits and
+  receipt files, sets the wallet to ₦0; keeps name, email, phone, country, address and payout details (optionally also clears the
+  t-shirt registration). The account stays suspended until restored. Type RESET to confirm.
 - **Delete permanently** (suspended members only): wipes the account, profile and bank details, plans and plan codes, payments,
   payouts, fees, wallet history, deposits and receipt files from the database. Type DELETE to confirm; cannot be undone.
 
