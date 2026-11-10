@@ -62,8 +62,9 @@ Online payment partners (Flutterwave, Paystack, Monnify) are **paused**. Members
 2. When a member uploads a receipt, the wallet is **credited at once** ("Account credited. Payment confirmation under review.").
    Always, even for a receipt file uploaded before (flagged in red for you). Receipts wait for you only if you set a
    "largest amount credited at once" (default 0 = no limit) or turn off "Credit the wallet as soon as a receipt is uploaded".
-3. Admin > Receipts > **To check**: compare each receipt with the bank statement, then **Confirm**, or **Reverse** to take the money
-   back (the wallet may go below zero if it was already spent; plans wait until the member tops up).
+3. Admin > Receipts > **Under review**: compare each receipt with the bank statement, then **Approve** (the money stays in the wallet)
+   or **Reject** (the money is withdrawn from the wallet; it may go below zero if it was already spent, and plans wait until the
+   member tops up). The member sees "Credited · under review", then "Approved" or "Rejected · money withdrawn".
 4. Optional ✓/✗ flags: add ONE AI key in Railway > Variables and each receipt is read in the background (amount, our account
    number, date, reference not reused, not edited). Flags only; never delays or blocks the credit.
    - `GEMINI_API_KEY` Google Gemini, from aistudio.google.com (free tier; free-tier data may be used by Google)

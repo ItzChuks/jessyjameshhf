@@ -253,36 +253,42 @@ function processQueue(app, budgetMs) {
 }
 
 // Admin actions on a transfer deposit: approve | reject | confirm | reverse
+// Admin decision on a receipt:
+//   approve  credited & under review -> approved, the money stays · waiting/rejected (never credited) -> credited and approved
+//   reject   credited & under review (or approved) -> the money is WITHDRAWN from the wallet · waiting -> rejected, nothing credited
+//   reread   read the receipt again in the background (flags only)
+// ("confirm" and "reverse" are kept as older names for approve/reject.)
 function review(app, adminId, depId, action, note) {
   note = String(note || "").trim().slice(0, 300);
+  if (action === "confirm") action = "approve";
+  if (action === "reverse") action = "reject";
   let out = {};
   W.inTx((tx) => {
     let d; try { d = tx.findRecordById("deposits", String(depId || "")); } catch (_) { throw new BadRequestError("Deposit not found."); }
     const st = d.getString("status"), uid = d.getString("user");
     const stamp = () => { d.set("reviewed_by", adminId); d.set("reviewed_at", nowTs()); };
     if (action === "approve") {
-      if (st !== "pending" && st !== "failed") throw new BadRequestError("Only a waiting or rejected receipt can be approved.");
-      stamp(); d.set("check_note", note || "Approved by admin."); creditDeposit(tx, d, "admin");
-      out = { status: "successful" };
+      if (st === "successful") {                                   // already in the wallet: the money stays
+        if (d.getString("verified") === "admin") throw new BadRequestError("This payment is already approved.");
+        stamp(); d.set("verified", "admin"); d.set("check_note", note || "Payment approved."); tx.save(d);
+      } else if (st === "pending" || st === "failed") {           // never credited: credit it now
+        stamp(); d.set("check_note", note || "Payment approved."); creditDeposit(tx, d, "admin");
+      } else throw new BadRequestError("A rejected payment whose money was withdrawn cannot be approved again. Credit the wallet by hand if needed.");
+      out = { status: "successful", balance: W.balanceOf(tx, uid) };
     } else if (action === "reject") {
-      if (st !== "pending") throw new BadRequestError("Only a waiting receipt can be rejected. To take back money already credited, use Reverse.");
-      stamp(); d.set("status", "failed"); d.set("verified", ""); d.set("check_note", note || "Rejected: payment not received."); tx.save(d);
-      out = { status: "failed" };
+      if (st === "successful") {                                   // credited on upload: withdraw the money
+        W.post(tx, uid, -d.getFloat("amount"), "reversal", "Deposit rejected, money withdrawn" + (note ? " · " + note : " · payment not received"), { ref: "REVERSAL-" + d.id, allowNegative: true });
+        tx.findRecordsByFilter("fees", "tx_ref = {:r} && type = 'tax'", "", 0, 0, { r: d.getString("tx_ref") }).forEach(f => { f.set("status", "rejected"); tx.save(f); });
+        stamp(); d.set("status", "reversed"); d.set("check_note", note || "Payment not received."); tx.save(d);
+      } else if (st === "pending") {                               // never credited
+        stamp(); d.set("status", "failed"); d.set("verified", ""); d.set("check_note", note || "Payment not received."); tx.save(d);
+      } else throw new BadRequestError("This payment is already rejected.");
+      out = { status: d.getString("status"), balance: W.balanceOf(tx, uid) };
     } else if (action === "reread") {
       if (!d.getString("receipt")) throw new BadRequestError("This deposit has no receipt.");
       if (!provider()) throw new BadRequestError("Automatic receipt reading is not set up.");
-      d.set("ai_state", "queued"); d.set("check", { read: false, tries: 0 }); tx.save(d);
+      d.set("ai_state", "queued"); d.set("check", Object.assign({}, d.get("check") || {}, { read: false, tries: 0 })); tx.save(d);
       out = { status: st, queued: true };
-    } else if (action === "confirm") {
-      if (st !== "successful") throw new BadRequestError("Only a credited deposit can be confirmed.");
-      stamp(); d.set("verified", "admin"); if (note) d.set("check_note", note); tx.save(d);
-      out = { status: "successful" };
-    } else if (action === "reverse") {
-      if (st !== "successful") throw new BadRequestError("Only a credited deposit can be reversed.");
-      W.post(tx, uid, -d.getFloat("amount"), "reversal", "Deposit reversed by admin" + (note ? " · " + note : " · payment not received"), { ref: "REVERSAL-" + d.id, allowNegative: true });
-      tx.findRecordsByFilter("fees", "tx_ref = {:r} && type = 'tax'", "", 0, 0, { r: d.getString("tx_ref") }).forEach(f => { f.set("status", "rejected"); tx.save(f); });
-      stamp(); d.set("status", "reversed"); d.set("check_note", note || "Reversed: payment not received."); tx.save(d);
-      out = { status: "reversed", balance: W.balanceOf(tx, uid) };
     } else throw new BadRequestError("Unknown action.");
   });
   return out;

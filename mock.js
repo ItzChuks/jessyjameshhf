@@ -140,10 +140,15 @@ function createMockPB() {
     if (path.endsWith('/admin/transfer')) {
       if (me.role !== 'admin') throw new Error('Admins only.');
       const d = db.deposits.find(x => x.id === b.id); if (!d) throw new Error('Deposit not found.'); const stamp = () => { d.reviewed_by = aid; d.reviewed_at = now(); };
-      if (b.action === 'approve') { if (d.status !== 'pending' && d.status !== 'failed') throw new Error('Only a waiting or rejected receipt can be approved.'); post(d.user, d.amount, 'topup', 'Bank transfer (approved by admin)', { ref: 'TRANSFER-' + d.id }); d.status = 'successful'; d.verified = 'admin'; d.check_note = b.note || 'Approved by admin.'; stamp(); collect(d.user); }
-      else if (b.action === 'reject') { if (d.status !== 'pending') throw new Error('Only a waiting receipt can be rejected.'); d.status = 'failed'; d.check_note = b.note || 'Rejected'; stamp(); }
-      else if (b.action === 'confirm') { d.verified = 'admin'; stamp(); }
-      else if (b.action === 'reverse') { if (d.status !== 'successful') throw new Error('Only a credited deposit can be reversed.'); post(d.user, -d.amount, 'reversal', 'Deposit reversed by admin · ' + (b.note || ''), { allowNegative: true }); d.status = 'reversed'; d.check_note = b.note || 'Reversed'; stamp(); }
+      const act = b.action === 'confirm' ? 'approve' : b.action === 'reverse' ? 'reject' : b.action;
+      if (act === 'approve') {
+        if (d.status === 'successful') { d.verified = 'admin'; d.check_note = b.note || 'Payment approved.'; stamp(); }                     // money stays
+        else { post(d.user, d.amount, 'topup', 'Bank transfer (approved by admin)', { ref: 'TRANSFER-' + d.id }); d.status = 'successful'; d.verified = 'admin'; d.check_note = b.note || 'Payment approved.'; stamp(); collect(d.user); }
+      } else if (act === 'reject') {
+        if (d.status === 'successful') { post(d.user, -d.amount, 'reversal', 'Deposit rejected, money withdrawn · ' + (b.note || ''), { allowNegative: true }); d.status = 'reversed'; }   // money withdrawn
+        else d.status = 'failed';
+        d.check_note = b.note || 'Payment not received.'; stamp();
+      }
       emit('deposits', 'update', d); save(); return { status: d.status, balance: db.users.find(u => u.id === d.user).wallet_balance };
     }
     if (path.endsWith('/admin/suspend')) {

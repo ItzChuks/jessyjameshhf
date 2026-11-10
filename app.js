@@ -343,7 +343,7 @@ window.transferBox = transferBox;
 // where a transfer deposit stands, for members and admins
 const depBadge = d => {
   if (d.gateway && d.gateway !== 'transfer' && (d.status === 'pending' || d.status === 'failed')) return '<span class="inline-flex px-2 py-0.5 rounded-md text-xs font-medium ring-1 ring-inset bg-slate-50 text-slate-600 ring-slate-200">Not completed</span>';
-  const c = { pending: ['Being checked', 'bg-amber-50 text-amber-800 ring-amber-200'], successful: d.verified === 'auto' ? ['Credited · under review', 'bg-emerald-50 text-emerald-800 ring-emerald-200'] : ['Confirmed', 'bg-emerald-50 text-emerald-800 ring-emerald-200'], failed: ['Rejected', 'bg-red-50 text-red-700 ring-red-200'], reversed: ['Reversed', 'bg-red-50 text-red-700 ring-red-200'] }[d.status] || [d.status, 'bg-slate-50 text-slate-600 ring-slate-200'];
+  const c = { pending: ['Waiting for approval', 'bg-amber-50 text-amber-800 ring-amber-200'], successful: d.verified === 'admin' ? ['Approved', 'bg-emerald-50 text-emerald-800 ring-emerald-200'] : ['Credited · under review', 'bg-amber-50 text-amber-800 ring-amber-200'], failed: ['Rejected', 'bg-red-50 text-red-700 ring-red-200'], reversed: ['Rejected · money withdrawn', 'bg-red-50 text-red-700 ring-red-200'] }[d.status] || [d.status, 'bg-slate-50 text-slate-600 ring-slate-200'];
   return `<span class="inline-flex px-2 py-0.5 rounded-md text-xs font-medium ring-1 ring-inset ${c[1]}">${c[0]}</span>`;
 };
 // a protected receipt file needs a short-lived file token
