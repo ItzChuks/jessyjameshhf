@@ -60,8 +60,8 @@ Online payment partners (Flutterwave, Paystack, Monnify) are **paused**. Members
 
 1. Admin > Receipts > **Account and settings**: bank name, 10-digit account number, account name.
 2. When a member uploads a receipt, the wallet is **credited at once** ("Account credited. Payment confirmation under review.").
-   Not credited (waits for you): the same receipt file uploaded again, or an amount above "largest amount credited at once"
-   (0 = no limit), or everything if "Credit the wallet as soon as a receipt is uploaded" is turned off.
+   Always, even for a receipt file uploaded before (flagged in red for you). Receipts wait for you only if you set a
+   "largest amount credited at once" (default 0 = no limit) or turn off "Credit the wallet as soon as a receipt is uploaded".
 3. Admin > Receipts > **To check**: compare each receipt with the bank statement, then **Confirm**, or **Reverse** to take the money
    back (the wallet may go below zero if it was already spent; plans wait until the member tops up).
 4. Optional ✓/✗ flags: add ONE AI key in Railway > Variables and each receipt is read in the background (amount, our account

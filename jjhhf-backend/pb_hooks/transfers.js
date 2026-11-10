@@ -3,9 +3,9 @@
 // 1. The member types how much they want in the wallet, transfers that amount + the ₦100 charge to the foundation's account
 //    (Admin > Receipts > Account and settings) and uploads the receipt (photo, screenshot or PDF).
 // 2. The wallet is credited AT ONCE ("Account credited, payment confirmation under review"), and plans waiting for money are paid.
-//    Two exceptions wait for an admin instead: the exact same receipt file was uploaded before, or the amount is above the
-//    "largest amount credited at once" setting (0 = no limit). With "Credit as soon as a receipt is uploaded" turned off in the
-//    settings, every receipt waits for an admin (the old way).
+//    Always, even when the same receipt file was uploaded before (that one is flagged in red for the admin to reverse).
+//    Only if the admin sets a "largest amount credited at once" (default 0 = no limit), or turns off "Credit the wallet as soon as a
+//    receipt is uploaded", do receipts wait for an admin.
 // 3. Every credited receipt is listed in Admin > Receipts > To check. The admin compares it with the bank statement and CONFIRMS it,
 //    or REVERSES it (the money is taken back from the wallet; the balance may go below zero if it was already spent, and plans
 //    then wait until the member tops up again).
@@ -214,15 +214,15 @@ function submit(app, uid, amount, file, senderName) {
   try { const f = receiptData(app, d); hash = $security.sha256(f.data); } catch (_) { }
   d.set("receipt_hash", hash);
 
-  // the same file uploaded before is never credited twice: it waits for an admin
+  // the same file uploaded before is still credited, but flagged for the admin (Admin > Receipts shows it in red)
   const dup = hash ? app.findRecordsByFilter("deposits", "receipt_hash = {:h} && id != {:id}", "", 1, 0, { h: hash, id: d.id }) : [];
   const tooBig = S.auto_max > 0 && d.getFloat("total") > S.auto_max;
   d.set("ai_state", provider() ? "queued" : "");                 // read in the background to help the admin (processQueue)
-  d.set("check", { read: false });
-  if (dup.length || tooBig || !S.auto_approve) {
-    d.set("check_note", dup.length ? "This receipt file was already uploaded before; an admin will check it." : tooBig ? "Large deposit: an admin will check it and credit your wallet." : "An admin will check your receipt and credit your wallet.");
+  d.set("check", dup.length ? { read: false, duplicate: true } : { read: false });
+  if (tooBig || !S.auto_approve) {                                // only when the admin chose a limit, or turned crediting on upload off
+    d.set("check_note", tooBig ? "Large deposit: an admin will check it and credit your wallet." : "An admin will check your receipt and credit your wallet.");
     app.save(d);
-    return { status: "pending", id: d.id, message: dup.length ? "This receipt was already uploaded before, so it was not credited again. An admin will check it." : "Receipt received. An admin will check it and credit your wallet." };
+    return { status: "pending", id: d.id, message: "Receipt received. An admin will check it and credit your wallet." };
   }
   d.set("check_note", "Account credited. Payment confirmation under review.");
   app.save(d);
@@ -242,10 +242,11 @@ function processQueue(app, budgetMs) {
     const c = d.get("check") || {}, tries = (Number(c.tries) || 0) + 1;
     const read = readReceipt(app, d, 40);
     const x = app.findRecordById("deposits", d.id);
-    if (!read.ok && read.retry && tries < 5) { x.set("check", { read: false, tries, error: read.error }); app.save(x); continue; }
-    if (!read.ok) { x.set("check", { read: false, error: read.error }); x.set("ai_state", "failed"); app.save(x); n++; continue; }
+    const dup = !!c.duplicate;
+    if (!read.ok && read.retry && tries < 5) { x.set("check", { read: false, tries, error: read.error, duplicate: dup }); app.save(x); continue; }
+    if (!read.ok) { x.set("check", { read: false, error: read.error, duplicate: dup }); x.set("ai_state", "failed"); app.save(x); n++; continue; }
     const ev = evaluate(app, x, read.data, S);
-    x.set("receipt_ref", ev.ref || ""); x.set("check", { read: true, ai: read.data, checks: ev.checks, reasons: ev.reasons }); x.set("ai_state", "done");
+    x.set("receipt_ref", ev.ref || ""); x.set("check", { read: true, ai: read.data, checks: ev.checks, reasons: ev.reasons, duplicate: dup }); x.set("ai_state", "done");
     app.save(x); n++;
   }
   return n;
