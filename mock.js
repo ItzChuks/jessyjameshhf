@@ -187,9 +187,15 @@ function createMockPB() {
       let changed = 0; l.sort(() => Math.random() - .5).forEach(u => { const g = drawGw(); if (u.gateway !== g) changed++; u.gateway = g; u.gateway_manual = false; emit('users', 'update', u); });
       save(); return { changed, total: l.length };
     }
+    if (path.endsWith('/wallet/deduct')) {
+      if (me.role !== 'admin') throw new Error('Admins only.');
+      const u = db.users.find(x => x.id === b.user), amt = +b.amount; if (!(amt > 0)) throw new Error('Enter an amount.'); if (!b.note) throw new Error('Give a reason.');
+      if (amt > (u.wallet_balance || 0)) throw new Error('The wallet only has ' + n(u.wallet_balance || 0) + '.');
+      const bal = post(b.user, -amt, 'deduction', 'Deducted by admin · ' + b.note); save(); return { ok: true, balance: bal };
+    }
     if (path.endsWith('/wallet/credit')) {
       if (me.role !== 'admin') throw new Error('Admins only.');
-      post(b.user, +b.amount, 'topup', 'Credited by admin · ' + b.ref, { ref: 'MANUAL-' + b.ref }); collect(b.user); save(); return { ok: true };
+      post(b.user, +b.amount, 'topup', ['Credited by admin', b.ref && 'ref ' + b.ref, b.note].filter(Boolean).join(' · '), { ref: 'MANUAL-' + uid() }); collect(b.user); save(); return { ok: true, balance: db.users.find(x => x.id === b.user).wallet_balance };
     }
     if (path.endsWith('/fee/pay')) {
       const t = b.type, amt = { shirt: 5000, join: 3000, clearance: 3500 }[t]; db.deposits = db.deposits || [];

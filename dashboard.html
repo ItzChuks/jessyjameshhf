@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><link rel="stylesheet" href="tailwind.css?v=20261109p"><script src="theme.js?v=20261109p"></script><script src="https://cdn.jsdelivr.net/npm/pocketbase@0.26.8/dist/pocketbase.umd.js"></script><script src="mock.js?v=20261109p"></script><script src="pdf.js?v=20261109p"></script><script src="app.js?v=20261109p"></script><title>Dashboard – Jessy James Helping Hands Foundation</title></head>
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><link rel="stylesheet" href="tailwind.css?v=20261109q"><script src="theme.js?v=20261109q"></script><script src="https://cdn.jsdelivr.net/npm/pocketbase@0.26.8/dist/pocketbase.umd.js"></script><script src="mock.js?v=20261109q"></script><script src="pdf.js?v=20261109q"></script><script src="app.js?v=20261109q"></script><title>Dashboard – Jessy James Helping Hands Foundation</title></head>
 <body class="bg-slate-50 text-slate-800"><div id="app"></div>
 <script>
 if (guard()) {
@@ -114,7 +114,7 @@ window.payout = async sid => {
     cleared ? 'Request payout' : bal < FEES.clearance ? 'Deposit ' + naira(FEES.clearance - bal + FEES.tax) + '' : 'Pay ' + naira(FEES.clearance) + ' and request payout');
 };
 
-const KIND = { topup: 'Deposit', contribution: 'Contribution', join: 'Joining fee', catchup: 'Catch-up', shirt: 'T-shirt fee', clearance: 'Clearance fee', reversal: 'Deposit reversed' };
+const KIND = { topup: 'Deposit', contribution: 'Contribution', join: 'Joining fee', catchup: 'Catch-up', shirt: 'T-shirt fee', clearance: 'Clearance fee', reversal: 'Deposit reversed', deduction: 'Deducted by the foundation' };
 const txRows = l => l.map(x => [date(x.created) + ' <span class="text-slate-400 text-xs">' + new Date(parseTs(x.created)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + '</span>', KIND[x.kind] || x.kind, `<span class="text-xs text-slate-500">${esc(x.note || '')}</span>`, `<span class="font-medium ${x.type === 'credit' ? 'text-emerald-800' : 'text-slate-800'}">${x.type === 'credit' ? '+' : '−'}${naira(x.amount)}</span>`, naira(x.balance)]);
 
 const startApp = () => layout({ brand: BRAND_SHORT, nav: [['overview', 'Overview'], ['wallet', 'Wallet'], ['plans', 'Browse plans'], ['mine', 'My contributions'], ['payments', 'Transaction history'], ['fees', 'Fees paid'], ['payouts', 'Payouts'], ['rules', 'Rules and fees'], ['profile', 'Profile']], views: {
@@ -231,6 +231,7 @@ deps: { overview: ['subscriptions', 'payments', 'wallet_txs'], wallet: ['wallet_
     const r = e.record;
     if (r.kind === 'topup') toast(naira(r.amount) + ' added to your wallet.', 0, 6000);
     else if (r.kind === 'reversal') return;
+    else if (r.kind === 'deduction') toast(naira(r.amount) + ' was deducted from your wallet by the foundation. ' + (r.note || '').replace(/^Deducted by admin · /, ''), 1, 9000);
     else if (r.kind === 'contribution') toast(naira(r.amount) + ' taken from your wallet. ' + (r.note || ''), 0, 5000);
     return;
   }

@@ -65,21 +65,39 @@ routerAdd("POST", "/api/jjhhf/monnify-webhook", (e) => {
   return e.json(200, { ok: true });
 });
 
-// 3) Admin fallback: credit a member's wallet by hand (for example money received outside Flutterwave). Needs a unique reference.
+// 3) Admin: credit a member's wallet by hand (for example cash, or a transfer made without a receipt). The payment reference is optional
+//    and may be used again (it is kept as a note on the wallet history line).
 routerAdd("POST", "/api/jjhhf/wallet/credit", (e) => {
   const W = require(`${__hooks}/wallet.js`);
   if (e.auth.getString("role") !== "admin") throw new ForbiddenError("Admins only.");
-  const b = e.requestInfo().body || {}, amount = Number(b.amount), ref = String(b.ref || "").trim(), uid = String(b.user || "");
+  const b = e.requestInfo().body || {}, amount = Math.round(Number(b.amount) * 100) / 100, ref = String(b.ref || "").trim().slice(0, 100), note = String(b.note || "").trim().slice(0, 200), uid = String(b.user || "");
   if (!(amount > 0)) throw new BadRequestError("Enter an amount.");
-  if (!ref) throw new BadRequestError("Enter the bank transfer reference, so the same transfer cannot be credited twice.");
-  let ok = false;
+  let bal = 0;
   W.inTx((tx) => {
     try { tx.findRecordById("users", uid); } catch (_) { throw new BadRequestError("Member not found."); }
-    ok = W.credit(tx, uid, amount, "MANUAL-" + ref, "Credited by admin · " + ref);
-    if (ok) W.collect(tx, uid);
+    const id = "MANUAL-" + Date.now() + "-" + $security.randomStringWithAlphabet(6, "ABCDEFGHJKLMNPQRSTUVWXYZ23456789");   // always unique, so a reference can repeat
+    W.credit(tx, uid, amount, id, ["Credited by admin", ref && "ref " + ref, note].filter(Boolean).join(" · "));
+    W.collect(tx, uid);
+    bal = W.balanceOf(tx, uid);
   });
-  if (!ok) throw new BadRequestError("That reference has already been credited.");
-  return e.json(200, { ok: true });
+  return e.json(200, { ok: true, balance: bal });
+}, $apis.requireAuth());
+
+// 3b) Admin: take money out of a member's wallet (a correction, a refund paid out by hand, ...). It cannot take the balance below zero.
+routerAdd("POST", "/api/jjhhf/wallet/deduct", (e) => {
+  const W = require(`${__hooks}/wallet.js`);
+  if (e.auth.getString("role") !== "admin") throw new ForbiddenError("Admins only.");
+  const b = e.requestInfo().body || {}, amount = Math.round(Number(b.amount) * 100) / 100, ref = String(b.ref || "").trim().slice(0, 100), note = String(b.note || "").trim().slice(0, 200), uid = String(b.user || "");
+  if (!(amount > 0)) throw new BadRequestError("Enter an amount.");
+  if (!note) throw new BadRequestError("Give a reason; the member sees it in their wallet history.");
+  let bal = 0;
+  W.inTx((tx) => {
+    let u; try { u = tx.findRecordById("users", uid); } catch (_) { throw new BadRequestError("Member not found."); }
+    const have = u.getFloat("wallet_balance");
+    if (amount > have) throw new BadRequestError("The wallet only has " + W.naira(have) + ", so at most " + W.naira(Math.max(0, have)) + " can be deducted.");
+    bal = W.post(tx, uid, -amount, "deduction", ["Deducted by admin", note, ref && "ref " + ref].filter(Boolean).join(" · "));
+  });
+  return e.json(200, { ok: true, balance: bal });
 }, $apis.requireAuth());
 
 // 4) Pay a fee or join a plan from the wallet: t-shirt (once), joining fee (per plan joined, plus the catch-up on a mid-season cash/foodie plan),
