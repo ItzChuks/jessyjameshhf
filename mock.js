@@ -175,7 +175,10 @@ function createMockPB() {
         if (!Number.isInteger(k) || k < 0) throw new Error('Row ' + (i + 1) + ': amount paid must be a multiple of the contribution, ' + n(pl.amount) + '.');
         const L = new Date(Date.now() + 36e5), start = new Date(Date.UTC(L.getUTCFullYear(), L.getUTCMonth(), L.getUTCDate() - days, 8) - 36e5);
         for (let c = 0; c < Math.max(1, Math.floor(+it.count || 1)); c++) {
-          const s = { id: uid(), created: start.toISOString().replace('T', ' '), user: b.user, plan: pl.id, status: 'active', imported: true, import_note: it.note || b.note || 'Brought over from manual records', no_penalty_before: b.charge_penalty ? '' : now() }; giveCode(s, pl);
+          const s = { id: uid(), created: start.toISOString().replace('T', ' '), user: b.user, plan: pl.id, status: 'active', imported: true, import_note: it.note || b.note || 'Brought over from manual records', no_penalty_before: b.charge_penalty ? '' : now() };
+          if (b.code_mode === 'custom') { giveCode(s, pl); if (s.code || true) { const A = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789', r4 = () => Array.from({ length: 4 }, () => A[Math.floor(Math.random() * A.length)]).join('');
+            s.code = s.code || 'JJ-' + r4() + '-' + r4(); s.code_from = new Date(Date.parse(b.code_from + 'T00:00:00Z') - 36e5).toISOString().replace('T', ' '); s.code_until = new Date(Date.parse(b.code_until + 'T00:00:00Z') + 864e5 - 36e5).toISOString().replace('T', ' '); } }
+          else if (b.code_mode !== 'none') giveCode(s, pl);
           db.subscriptions.push(s); emit('subscriptions', 'create', s); ids.push(s.id); added++;
           if (k) { const p = { id: uid(), created: now(), user: b.user, subscription: s.id, amount: paid, penalty: 0, installments: k, late_count: 0, note: 'Brought over from manual records · ' + k + ' payments', status: 'confirmed' }; db.payments.push(p); emit('payments', 'create', p); }
         }
@@ -186,6 +189,7 @@ function createMockPB() {
       if (me.role !== 'admin') throw new Error('Admins only.');
       const r = db.subscriptions.find(x => x.id === b.subscription); if (!r || !r.code) throw new Error('Plan code not found.');
       if (r.code_used_at) throw new Error('This code was used by ' + (r.code_used_name || 'a member') + ', so its status cannot be changed.');
+      if (b.status === 'open') { r.code_from = now(); emit('subscriptions', 'update', r); save(); return { ok: true }; }
       r.code_admin = b.status === 'auto' ? '' : b.status; r.code_admin_at = b.status === 'auto' ? '' : now(); emit('subscriptions', 'update', r); save(); return { ok: true };
     }
     // demo: every provider counts as set up; the draw goes to the provider with the fewest members

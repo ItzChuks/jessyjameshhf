@@ -182,15 +182,24 @@ routerAdd("POST", "/api/jjhhf/code/check", (e) => {
   return e.json(200, { status: c.status, code: c.code, message: c.message, plan: c.plan || "", from: c.from ? c.from.toISOString() : "", until: c.until ? c.until.toISOString() : "" });
 }, $apis.requireAuth());
 
-// 9) Admin: change a plan code's status. status: "used" | "expired" (marked by the foundation) | "auto" (restore: back to its normal dates).
+// 9) Admin: change a plan code's status. status: "used" | "expired" (marked by the foundation) | "auto" (restore: back to its normal dates)
+//    | "open" (a code that is not open yet becomes usable now; its last day stays the same).
 //    A code that a member actually used cannot be changed.
 routerAdd("POST", "/api/jjhhf/admin/code-status", (e) => {
   if (e.auth.getString("role") !== "admin") throw new ForbiddenError("Admins only.");
   const b = e.requestInfo().body || {}, st = String(b.status || "");
-  if (!["used", "expired", "auto"].includes(st)) throw new BadRequestError("Choose used, expired or restore.");
+  if (!["used", "expired", "auto", "open"].includes(st)) throw new BadRequestError("Choose open, used, expired or restore.");
   let rec; try { rec = $app.findRecordById("subscriptions", String(b.subscription || "")); } catch (_) { throw new BadRequestError("Plan code not found."); }
   if (!rec.getString("code")) throw new BadRequestError("This membership has no plan code.");
   if (rec.getString("code_used_at")) throw new BadRequestError("This code was used by " + (rec.getString("code_used_name") || "a member") + ", so its status cannot be changed.");
+  if (st === "open") {
+    const now = new Date(), until = new Date(String(rec.getString("code_until")).replace(" ", "T"));
+    if (rec.getString("code_admin")) throw new BadRequestError("Restore the code first.");
+    if (!(until > now)) throw new BadRequestError("This code has already expired, so it cannot be opened.");
+    rec.set("code_from", now.toISOString().replace("T", " "));
+    $app.save(rec);
+    return e.json(200, { ok: true, code: rec.getString("code"), status: "open" });
+  }
   rec.set("code_admin", st === "auto" ? "" : st);
   rec.set("code_admin_at", st === "auto" ? "" : new Date().toISOString().replace("T", " "));
   $app.save(rec);
@@ -283,7 +292,9 @@ routerAdd("POST", "/api/jjhhf/admin/import-plan", (e) => {
   const b = e.requestInfo().body || {};
   let out = {};
   // b.items = [{ plan, days, amount_paid, count, note }] adds several at once; the single-plan form (plan, days, amount_paid) still works
-  W.inTx((tx) => { out = Array.isArray(b.items) ? W.importMany(tx, String(b.user || ""), b.items, b.note, !!b.charge_penalty) : W.importPlan(tx, String(b.user || ""), b.plan, b.days, b.amount_paid, b.note, { chargePenalty: !!b.charge_penalty }); });
+  // b.code_mode: "custom" (b.code_from / b.code_until, "YYYY-MM-DD") | "none" | left out (the plan's usual code days)
+  const code = b.code_mode === "custom" ? { from: String(b.code_from || ""), until: String(b.code_until || "") } : b.code_mode === "none" ? "none" : undefined;
+  W.inTx((tx) => { out = Array.isArray(b.items) ? W.importMany(tx, String(b.user || ""), b.items, b.note, !!b.charge_penalty, code) : W.importPlan(tx, String(b.user || ""), b.plan, b.days, b.amount_paid, b.note, { chargePenalty: !!b.charge_penalty, code }); });
   return e.json(200, out);
 }, $apis.requireAuth());
 

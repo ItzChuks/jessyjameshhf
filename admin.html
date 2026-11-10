@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><link rel="stylesheet" href="tailwind.css?v=20261109s"><script src="theme.js?v=20261109s"></script><script src="https://cdn.jsdelivr.net/npm/pocketbase@0.26.8/dist/pocketbase.umd.js"></script><script src="mock.js?v=20261109s"></script><script src="pdf.js?v=20261109s"></script><script src="app.js?v=20261109s"></script><title>Admin – Jessy James Helping Hands Foundation</title></head>
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><link rel="stylesheet" href="tailwind.css?v=20261109t"><script src="theme.js?v=20261109t"></script><script src="https://cdn.jsdelivr.net/npm/pocketbase@0.26.8/dist/pocketbase.umd.js"></script><script src="mock.js?v=20261109t"></script><script src="pdf.js?v=20261109t"></script><script src="app.js?v=20261109t"></script><title>Admin – Jessy James Helping Hands Foundation</title></head>
 <body class="bg-slate-50 text-slate-800"><div id="app"></div>
 <script>
 if(guard('admin')){
@@ -31,9 +31,9 @@ window.shuffleGw=async all=>{
  try{const r=await pb.send('/api/jjhhf/admin/gateway/shuffle',{method:'POST',body:{mode:all?'all':'unassigned'}});toast(r.total?r.total.toLocaleString()+' member'+(r.total===1?'':'s')+' given a partner at random'+(all?' ('+r.changed.toLocaleString()+' changed)':'')+'.':'Every member already has a payment partner.',0,6000);refresh()}catch(e){toast(e.message,1)}};
 // plan code status: used | expired (marked by the admin) | auto (restore to its normal dates)
 window.setCode=async(id,st,code)=>{
- const T={used:['Mark '+code+' as used?','Nobody will be able to use this code. The owner sees it as used.','Mark as used'],expired:['Mark '+code+' as expired?','Nobody will be able to use this code. The owner sees it as expired.','Mark as expired'],auto:['Restore '+code+'?','The code goes back to its normal dates (usable between its opening day and its last day).','Restore']}[st];
- if(!(await confirmBox({title:T[0],message:T[1],confirmText:T[2],danger:st!=='auto'})))return;
- try{await pb.send('/api/jjhhf/admin/code-status',{method:'POST',body:{subscription:id,status:st}});toast(st==='auto'?'Code restored':'Code marked as '+st);refresh()}catch(e){toast(e.message,1)}};
+ const T={open:['Open '+code+' now?','The code becomes usable straight away instead of on its opening day. It still expires at the end of its last day.','Open now'],used:['Mark '+code+' as used?','Nobody will be able to use this code. The owner sees it as used.','Mark as used'],expired:['Mark '+code+' as expired?','Nobody will be able to use this code. The owner sees it as expired.','Mark as expired'],auto:['Restore '+code+'?','The code goes back to its normal dates (usable between its opening day and its last day).','Restore']}[st];
+ if(!(await confirmBox({title:T[0],message:T[1],confirmText:T[2],danger:st!=='auto'&&st!=='open'})))return;
+ try{await pb.send('/api/jjhhf/admin/code-status',{method:'POST',body:{subscription:id,status:st}});toast(st==='auto'?'Code restored':st==='open'?'Code '+code+' is now usable':'Code marked as '+st);refresh()}catch(e){toast(e.message,1)}};
 // ===== suspend / restore an account =====
 window.suspendUser=async(id,on)=>{const u=await col('users').getOne(id);
  if(on==='1'){const reason=await askText('Suspend '+(u.name||u.email)+'?','They are signed out and cannot sign in or use the site until you restore the account. Their plans keep running. They see the reason when they try to sign in.','Reason','Breaking the site rules');if(reason===null)return;
@@ -74,9 +74,14 @@ window.importPlan=async uid=>{const [u,plans]=await Promise.all([col('users').ge
   +'<div id="iprows" class="flex flex-col gap-3">'+rowHTML()+'</div><button type="button" id="ipadd" class="'+btn2+' w-full">+ Add another plan</button>'
   +'<label class="block text-sm"><span class="text-slate-600">Note (optional, saved on every plan added)</span><input name="note" placeholder="e.g. From the paper ledger" class="'+inp+' mt-1"></label>'
   +'<label class="flex items-start gap-2 text-sm rounded-lg border p-3 cursor-pointer"><input type="checkbox" name="charge_penalty" id="ippen" class="w-4 h-4 mt-0.5 rounded accent-emerald-700"><span><b>Charge late penalty</b> on payments that are already overdue<span class="block text-xs text-slate-500">Unticked: overdue payments are collected at the normal amount. Payments that fall due from now on follow the usual late rules either way.</span></span></label>'
+  +(()=>{const L=new Date(Date.now()+36e5),ymd=k=>new Date(Date.UTC(L.getUTCFullYear(),L.getUTCMonth(),L.getUTCDate()+k)).toISOString().slice(0,10);
+    return '<fieldset class="rounded-lg border p-3 text-sm"><label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" name="code_on" id="ipcode" checked class="w-4 h-4 rounded accent-emerald-700"><b>Give each plan a plan code</b></label>'
+     +'<div id="ipcd" class="grid grid-cols-2 gap-2 mt-2"><label class="block"><span class="text-slate-600">Usable from</span><input name="code_from" type="date" value="'+ymd(0)+'" min="'+ymd(0)+'" class="'+inp+' mt-1"></label><label class="block"><span class="text-slate-600">Expires after</span><input name="code_until" type="date" value="'+ymd(3)+'" min="'+ymd(0)+'" class="'+inp+' mt-1"></label></div>'
+     +'<p class="text-xs text-slate-500 mt-1" id="ipcn">Each plan added gets its own code, usable from the start of the first day to the end of the last day. Unticked: no codes.</p></fieldset>'})()
   +'<div id="ipv" class="text-sm rounded-lg border bg-slate-50 p-3"></div>',
-  async d=>{const rows=read();if(rows.some(r=>!r.ok))throw new Error('Fix the rows marked in red first.');
-   const r=await pb.send('/api/jjhhf/admin/import-plan',{method:'POST',body:{user:uid,note:d.note,charge_penalty:!!d.charge_penalty,items:rows.map(r=>({plan:r.pl.id,days:r.days,amount_paid:r.paid,count:r.count}))}});
+  async d=>{if(d.code_on&&(!d.code_from||!d.code_until||d.code_until<d.code_from))throw new Error('Choose when the plan codes open and expire (the last day must be on or after the first).');
+   const rows=read();if(rows.some(r=>!r.ok))throw new Error('Fix the rows marked in red first.');
+   const r=await pb.send('/api/jjhhf/admin/import-plan',{method:'POST',body:{user:uid,note:d.note,charge_penalty:!!d.charge_penalty,code_mode:d.code_on?'custom':'none',code_from:d.code_from,code_until:d.code_until,items:rows.map(r=>({plan:r.pl.id,days:r.days,amount_paid:r.paid,count:r.count}))}});
    toast(r.added+' plan'+(r.added===1?'':'s')+' added for '+(u.name||u.email)+'.'+(r.collected?' '+r.collected+' payment'+(r.collected===1?' was':'s were')+' due and taken from the wallet.':''),0,7000)},'Add plans');
  const M=document.querySelector('[data-ui="modal"]');M.querySelector('form').classList.replace('max-w-md','max-w-2xl');
  // what a row means: start date, payments recorded, next payment, and any payments already due but not paid
@@ -87,11 +92,13 @@ window.importPlan=async uid=>{const [u,plans]=await Promise.all([col('users').ge
   rows.forEach(r=>{r.el.querySelector('[data-pv]').innerHTML=r.cerr?'<span class="text-red-600">How many times must be 1 to 50.</span>':(r.count>1?'<b>× '+r.count+'</b> · ':'')+r.info.txt;r.el.classList.toggle('border-red-200',!r.ok);r.el.classList.toggle('bg-red-50',!r.ok);
    if(!r.ok){bad++;return}n+=r.count;amt+=r.paid*r.count;owed+=(r.info.owed||0)*r.count;late+=(r.info.late||0)*r.count});
   M.querySelectorAll('[data-del]').forEach(b=>b.classList.toggle('hidden',rows.length===1));
-  $('#ipv').innerHTML=bad?'<span class="text-red-600">'+bad+' row'+(bad===1?' needs':'s need')+' fixing.</span>':'<b>'+n+' plan'+(n===1?'':'s')+'</b> will be added, with <b>'+naira(amt)+'</b> recorded as already paid (no joining fees, wallet not touched).'+(owed?(()=>{const pen=$('#ippen').checked,amt2=rows.filter(r=>r.ok).reduce((a,r)=>a+(r.info.owed||0)*r.count*r.pl.amount+(pen?(r.info.late||0)*r.count*r.pl.amount*(RULES.lateMultiplier-1):0),0);
+  $('#ipv').innerHTML=bad?'<span class="text-red-600">'+bad+' row'+(bad===1?' needs':'s need')+' fixing.</span>':'<b>'+n+' plan'+(n===1?'':'s')+'</b> will be added, with <b>'+naira(amt)+'</b> recorded as already paid (no joining fees, wallet not touched).'+($('#ipcode')?.checked?' Each gets a plan code usable <b>'+fmtDay(new Date(M.querySelector('[name="code_from"]').value+'T12:00:00Z'))+'</b> to the end of <b>'+fmtDay(new Date(M.querySelector('[name="code_until"]').value+'T12:00:00Z'))+'</b>.':' No plan codes.')+(owed?(()=>{const pen=$('#ippen').checked,amt2=rows.filter(r=>r.ok).reduce((a,r)=>a+(r.info.owed||0)*r.count*r.pl.amount+(pen?(r.info.late||0)*r.count*r.pl.amount*(RULES.lateMultiplier-1):0),0);
    return '<br><span class="text-amber-800">'+owed+' payment'+(owed===1?' is':'s are')+' due and unpaid'+(late?(pen?' ('+late+' late, costing double)':' (late, but no penalty)'):'')+': <b>'+naira(amt2)+'</b> in total. Taken from the wallet now if it has enough ('+naira(u.wallet_balance)+'), otherwise as soon as the member deposits.</span>'})():'');
   const b=M.querySelector('button:not([type])');if(b)b.textContent=n>1?'Add '+n+' plans':'Add plan'};
  const rowsEl=$('#iprows');
  rowsEl.addEventListener('input',paint);rowsEl.addEventListener('change',paint);$('#ippen').onchange=paint;
+ $('#ipcode').onchange=()=>{$('#ipcd').classList.toggle('hidden',!$('#ipcode').checked);paint()};
+ M.querySelector('[name="code_from"]').onchange=e=>{const u=M.querySelector('[name="code_until"]');u.min=e.target.value;if(u.value<e.target.value)u.value=e.target.value;paint()};
  rowsEl.addEventListener('click',e=>{const d=e.target.closest('[data-del]');if(d&&rowsEl.children.length>1){d.closest('[data-row]').remove();paint()}});
  $('#ipadd').onclick=()=>{const last=rowsEl.lastElementChild;rowsEl.insertAdjacentHTML('beforeend',rowHTML());const nw=rowsEl.lastElementChild;
   ['plan','n','unit','paid'].forEach(f=>nw.querySelector('[data-f="'+f+'"]').value=last.querySelector('[data-f="'+f+'"]').value);paint();nw.querySelector('[data-f="plan"]').focus()};   // a new row starts as a copy of the last one
@@ -160,7 +167,7 @@ const uwho=(u,fallback)=>u?ulink(u)+(u.email?'<span class="block text-xs text-sl
 const clink=c=>c?'<a href="#code?c='+encodeURIComponent(c)+'" class="font-mono font-semibold tracking-wider text-emerald-800 hover:underline">'+esc(c)+'</a>':'—';
 // search: a code, or the name / email of its owner or of whoever used it
 const codeSearch=v=>{const c=v.toUpperCase().replace(/\s+/g,'');return pb.filter('(code~{:c} || joined_code~{:c} || user.name~{:q} || user.email~{:q} || code_used_by.name~{:q} || code_used_by.email~{:q} || code_used_name~{:q})',{c,q:v})};
-const codeActs=x=>!x.code||x.code_used_at?'':x.code_admin?ab('Restore',call('setCode',x.id,'auto',x.code)):(codeStatus(x)==='expired'?'':ab('Mark used',call('setCode',x.id,'used',x.code))+ab('Mark expired',call('setCode',x.id,'expired',x.code),'border text-red-600'));
+const codeActs=x=>!x.code||x.code_used_at?'':x.code_admin?ab('Restore',call('setCode',x.id,'auto',x.code)):(codeStatus(x)==='expired'?'':(codeStatus(x)==='soon'?ab('Open now',call('setCode',x.id,'open',x.code),'bg-emerald-600 text-white'):'')+ab('Mark used',call('setCode',x.id,'used',x.code))+ab('Mark expired',call('setCode',x.id,'expired',x.code),'border text-red-600'));
 window.recheckDep=async ref=>{try{const r=await pb.send('/api/jjhhf/wallet/verify',{method:'POST',body:{tx_ref:ref}});toast('Deposit is '+r.status+(r.note?': '+r.note:''),r.status==='failed');refresh()}catch(e){toast(e.message,1)}};
 window.setRec=async(c,id,f,v)=>{try{await col(c).update(id,{[f]:v});refresh()}catch(e){toast(e.message,1)}};
 window.delPlans=async ids=>{ids=[].concat(ids);const pl=window._pln||{},one=ids.length===1;

@@ -216,7 +216,18 @@ function joinMany(app, uid, planId, code, qty, codes) {
 // contributions). No joining fee is taken and the wallet is not touched for what was paid before. From then on the plan runs exactly
 // like any other: the next payments are collected from the wallet automatically. Payments that are already due but not covered by
 // amountPaid are collected at once if the wallet can pay them (late ones with the usual penalty).
-function importPlan(app, uid, planId, days, amountPaid, note, opts = {}) {   // opts.chargePenalty: charge the late penalty on payments already overdue
+// opts.chargePenalty: charge the late penalty on payments already overdue
+// opts.code: { from: "YYYY-MM-DD", until: "YYYY-MM-DD" } gives the plan a code usable from the start of "from" to the end of "until"
+//            (Lagos calendar), chosen by the admin; "none" gives no code; left out = the plan's usual code days counted from the start
+function codeDatesFromAdmin(c) {
+  const p = s => { const m = String(s || "").match(/^(\d{4})-(\d{2})-(\d{2})$/); return m ? Date.UTC(+m[1], +m[2] - 1, +m[3]) - 36e5 : NaN; };
+  const from = p(c.from), until = p(c.until);
+  if (isNaN(from) || isNaN(until)) throw new BadRequestError("Choose the day the plan code opens and the day it expires.");
+  if (until < from) throw new BadRequestError("The plan code must expire on or after the day it opens.");
+  if (until + 864e5 <= Date.now()) throw new BadRequestError("The plan code's last day is already past; choose a later day.");
+  return { from: new Date(from), until: new Date(until + 864e5) };   // until = the first moment after the last day
+}
+function importPlan(app, uid, planId, days, amountPaid, note, opts = {}) {
   let plan; try { plan = app.findRecordById("plans", String(planId || "")); } catch (_) { throw new BadRequestError("That plan does not exist."); }
   try { app.findRecordById("users", String(uid || "")); } catch (_) { throw new BadRequestError("Member not found."); }
   const pl = R.planObj(plan);
@@ -238,7 +249,7 @@ function importPlan(app, uid, planId, days, amountPaid, note, opts = {}) {   // 
   // "created" is filled in automatically on save; move it back to the real joining day
   app.db().newQuery("UPDATE {{subscriptions}} SET [[created]] = {:c} WHERE [[id]] = {:id}").bind({ c: ts(start), id: sub.id }).execute();
   const rec = app.findRecordById("subscriptions", sub.id), s = { id: rec.id, created: rec.getString("created"), no_penalty_before: rec.getString("no_penalty_before") };
-  const win = R.codeWindow(s.created, plan.getInt("code_from_day"), plan.getInt("code_until_day"));
+  const win = opts.code === "none" ? null : opts.code ? codeDatesFromAdmin(opts.code) : R.codeWindow(s.created, plan.getInt("code_from_day"), plan.getInt("code_until_day"));
   if (win) { rec.set("code", newCode(app)); rec.set("code_from", ts(win.from)); rec.set("code_until", ts(win.until)); }
   if (k > 0) {
     const p = new Record(app.findCollectionByNameOrId("payments"));
@@ -255,7 +266,7 @@ function importPlan(app, uid, planId, days, amountPaid, note, opts = {}) {   // 
 
 // Several at once: items = [{ plan, days, amount_paid, count (how many of that same plan, default 1), note }].
 // All or nothing (run inside a transaction). Each row adds 1 to MAX_SLOTS memberships; there is no limit on how many a member holds.
-function importMany(app, uid, items, note, chargePenalty) {
+function importMany(app, uid, items, note, chargePenalty, code) {
   if (!Array.isArray(items) || !items.length) throw new BadRequestError("Add at least one plan.");
   const total = items.reduce((a, it) => a + Math.max(0, Math.floor(Number(it.count || 1))), 0);
   if (total < 1) throw new BadRequestError("Add at least one plan.");
@@ -273,7 +284,7 @@ function importMany(app, uid, items, note, chargePenalty) {
   items.forEach((it, i) => {
     for (let k = 0; k < Math.floor(Number(it.count || 1)); k++) {
       let r;
-      try { r = importPlan(app, uid, it.plan, it.days, it.amount_paid, it.note || note, { noCollect: true, chargePenalty: !!chargePenalty }); }
+      try { r = importPlan(app, uid, it.plan, it.days, it.amount_paid, it.note || note, { noCollect: true, chargePenalty: !!chargePenalty, code }); }
       catch (err) { const m = String((err && err.message) || err).replace(/^[\s\S]*?BadRequestError:\s*/, ""); throw new BadRequestError("Row " + (i + 1) + ": " + m); }
       out.added++; out.paid += r.paid; out.subscriptions.push(r.subscription);
     }
