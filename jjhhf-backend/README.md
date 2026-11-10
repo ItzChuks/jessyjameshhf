@@ -54,24 +54,21 @@ Sign up on the website, then in the PocketBase panel open **users**, edit yourse
 - Starting point: 1 vCPU / 1 GB RAM covers a few hundred people online. For thousands online at once, raise the limits to about 4–8 vCPU / 4–8 GB (Railway Pro allows more). Logins and sign-ups use the most CPU (password hashing), and each open dashboard holds one live connection.
 - Put the Volume in the same region as the service. Watch CPU and RAM in Railway's Metrics tab and raise the limits before they reach about 70%.
 
-## Deposits by bank transfer (current)
+## Deposits by bank transfer (current): credit first, check after
 
 Online payment partners (Flutterwave, Paystack, Monnify) are **paused**. Members transfer to the foundation account and upload the receipt.
 
-1. Admin > Receipts > **Account and settings**: bank name, 10-digit account number, account name, automatic approval on/off,
-   the largest amount credited automatically, and how many days old a receipt may be.
-2. Railway > Variables: add ONE of these to turn on automatic receipt reading (without one, every receipt waits for an admin):
-   - `GEMINI_API_KEY` Google Gemini, from aistudio.google.com (free tier, no card; free-tier data may be used by Google)
-   - `XAI_API_KEY` Grok, from console.x.ai (reads JPG/PNG; PDF receipts go to an admin)
-   - `OPENAI_API_KEY` OpenAI (JPG/PNG; PDF receipts go to an admin)
-   - `ANTHROPIC_API_KEY` Anthropic Claude
-   If several are set, pick one with `RECEIPT_AI=gemini|xai|openai|anthropic`. `RECEIPT_AI_MODEL` overrides the model
-   (defaults: gemini-3.8-flash, grok-4, gpt-5-mini, claude-haiku-5-5). Admin > Receipts > Account and settings shows which one is on.
-3. A receipt is credited at once only when it is a successful transfer receipt that does not look edited, the amount is exactly
-   amount + ₦100, it was paid into our account number, it is dated within the allowed days, and the same file or transaction
-   reference was never uploaded before. Everything else waits in Admin > Receipts.
-4. Credited-automatically receipts show under **To check**: compare with the bank statement, then **Confirm** or **Reverse**
-   (money taken back; the wallet may go below zero). Waiting ones: **Approve** or **Reject**.
+1. Admin > Receipts > **Account and settings**: bank name, 10-digit account number, account name.
+2. When a member uploads a receipt, the wallet is **credited at once** ("Account credited. Payment confirmation under review.").
+   Not credited (waits for you): the same receipt file uploaded again, or an amount above "largest amount credited at once"
+   (0 = no limit), or everything if "Credit the wallet as soon as a receipt is uploaded" is turned off.
+3. Admin > Receipts > **To check**: compare each receipt with the bank statement, then **Confirm**, or **Reverse** to take the money
+   back (the wallet may go below zero if it was already spent; plans wait until the member tops up).
+4. Optional ✓/✗ flags: add ONE AI key in Railway > Variables and each receipt is read in the background (amount, our account
+   number, date, reference not reused, not edited). Flags only; never delays or blocks the credit.
+   - `GEMINI_API_KEY` Google Gemini, from aistudio.google.com (free tier; free-tier data may be used by Google)
+   - `XAI_API_KEY` Grok · `OPENAI_API_KEY` OpenAI (JPG/PNG only) · `ANTHROPIC_API_KEY` Anthropic Claude
+   `RECEIPT_AI=gemini|xai|openai|anthropic` picks one if several are set; `RECEIPT_AI_MODEL` overrides the model.
 
 To bring the online partners back later, set `ONLINE_PAYMENTS=on` (their code is still in gateways.js / deposits.js).
 

@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><link rel="stylesheet" href="tailwind.css?v=20261109n"><script src="theme.js?v=20261109n"></script><script src="https://cdn.jsdelivr.net/npm/pocketbase@0.26.8/dist/pocketbase.umd.js"></script><script src="mock.js?v=20261109n"></script><script src="pdf.js?v=20261109n"></script><script src="app.js?v=20261109n"></script><title>Dashboard – Jessy James Helping Hands Foundation</title></head>
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><link rel="stylesheet" href="tailwind.css?v=20261109o"><script src="theme.js?v=20261109o"></script><script src="https://cdn.jsdelivr.net/npm/pocketbase@0.26.8/dist/pocketbase.umd.js"></script><script src="mock.js?v=20261109o"></script><script src="pdf.js?v=20261109o"></script><script src="app.js?v=20261109o"></script><title>Dashboard – Jessy James Helping Hands Foundation</title></head>
 <body class="bg-slate-50 text-slate-800"><div id="app"></div>
 <script>
 if (guard()) {
@@ -144,7 +144,7 @@ const startApp = () => layout({ brand: BRAND_SHORT, nav: [['overview', 'Overview
           <div class="flex flex-wrap gap-1.5">${chips}</div>
           <div id="dsum" class="text-sm rounded-lg border bg-slate-50 px-3 py-2">${depositSummary(pre)}</div>
           <button class="${btn} w-full py-3 gap-2"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4m0 0l-4 4m4-4l4 4M4 20h16"/></svg>I have paid: upload receipt</button>
-          <p class="text-xs text-slate-500">Transfer the exact amount (including the ${naira(FEES.tax)} charge) to the account above, then upload the receipt. ${I.auto ? 'Receipts are checked automatically and your wallet is credited at once when everything matches.' : 'An admin checks each receipt and credits your wallet.'} ${esc(I.transfer_note || '')}</p></form>`
+          <p class="text-xs text-slate-500">Transfer the exact amount (including the ${naira(FEES.tax)} charge) to the account above, then upload the receipt. ${I.auto ? 'Your wallet is credited as soon as you upload the receipt; the foundation then confirms the payment with its bank.' : 'An admin checks each receipt and credits your wallet.'} ${esc(I.transfer_note || '')}</p></form>`
         : `<div class="bg-white border rounded-xl p-5 text-sm text-slate-600">Deposits are not open yet. Please contact customer care.</div>`) + `</div>`
       + `<div class="lg:col-span-3 space-y-6">${dueNow.length ? `<div><h2 class="text-sm font-semibold mb-3">What your plans will take</h2>` + table(['Plan', 'Next payment', 'Status'], dueNow.map(i => [esc(i.pl.name), naira(i.st.cost(0)), i.w.s === 'waiting' ? '<span class="text-red-600 font-medium">Waiting for a deposit</span>' : i.w.s === 'scheduled' ? 'Taken ' + fmtDay(i.w.at) : '<span class="text-emerald-800 font-medium">Covered</span>'])) + '</div>' : ''}`
       + (deps.length ? `<div><h2 class="text-sm font-semibold mb-3">Deposits</h2>` + table(['Date', 'Into wallet', 'Charge', 'You paid', 'Status', ''], deps.map(d => [date(d.created), naira(d.amount), naira(d.fee), naira(d.total), depBadge(d) + (d.check_note && d.status !== 'successful' ? `<span class="block text-xs text-slate-500 mt-1 whitespace-normal max-w-[18rem]">${esc(d.check_note)}</span>` : ''), d.receipt ? `<button type="button" onclick="openReceipt('${d.id}')" class="px-2.5 py-1 text-xs rounded-md border font-medium bg-white text-slate-700 hover:bg-slate-50">Receipt</button>` : ''])) + '</div>' : '')
@@ -226,11 +226,6 @@ deps: { overview: ['subscriptions', 'payments', 'wallet_txs'], wallet: ['wallet_
   }
   if (c === 'deposits' && e.action === 'update' && e.record.status === 'failed') { toast('Your receipt for ' + naira(e.record.total) + ' was rejected' + (e.record.check_note ? ': ' + e.record.check_note : '.'), 1, 9000); return; }
   if (c === 'deposits' && e.action === 'update' && e.record.status === 'reversed') { toast('A deposit of ' + naira(e.record.amount) + ' was reversed' + (e.record.check_note ? ': ' + e.record.check_note : '.'), 1, 9000); return; }
-  // a receipt read in the background could not be confirmed (one that was credited shows the "added to your wallet" notice instead)
-  if (c === 'deposits' && e.action === 'update' && e.record.status === 'pending' && e.record.verified !== 'queued' && e.record.check?.read !== undefined && e.record.gateway === 'transfer') {
-    const k = 'dq:' + e.record.id; if (!sessionStorage.getItem(k)) { sessionStorage.setItem(k, 1); toast('Receipt for ' + naira(e.record.total) + ': ' + (e.record.check_note || 'waiting for an admin to check it.'), 0, 9000); }
-    return;
-  }
   if (c === 'deposits') return;
   if (c === 'wallet_txs' && e.action === 'create') {
     const r = e.record;

@@ -1,21 +1,17 @@
-// Bank-transfer deposits with a receipt.
+// Bank-transfer deposits with a receipt: CREDIT FIRST, CHECK AFTER.
 //
-// 1. The member types how much they want in the wallet. They transfer that amount + the ₦100 charge to the foundation's account
-//    (Admin > Receipts > Settings) and upload the receipt (photo, screenshot or PDF).
-// 2. The receipt is read automatically by an AI model (Gemini, Grok, OpenAI or Claude: see "which AI reads the receipts" below). The server checks:
-//      * it really is a successful transfer receipt that does not look edited
-//      * the amount is EXACTLY what the member had to pay (amount + charge)
-//      * it was paid INTO the foundation's account number (masked numbers like 01****6789 must match on every digit shown)
-//      * the payment date is today or within the last few days (Settings: max_age_days) and not in the future
-//      * the same receipt (same file, or same transaction reference / session ID) has not been used before
-//    If every check passes and automatic approval is on (and the amount is within the automatic limit), the wallet is credited at once
-//    and the deposit is marked "credited automatically": an admin should still compare it with the bank statement (Admin > Receipts).
-//    Otherwise the deposit waits for an admin, with the reasons.
-// 3. An admin can approve a waiting receipt, reject it, confirm an automatic one, or REVERSE a credited one (money taken back from the
-//    wallet; the balance may go below zero if it was already spent, and plans then wait until it is topped up again).
-//
-// A receipt is only a picture: it can never prove money arrived. Automatic approval is a convenience; the admin check against the
-// bank statement is what makes it safe. Without an AI key every receipt simply waits for an admin.
+// 1. The member types how much they want in the wallet, transfers that amount + the ₦100 charge to the foundation's account
+//    (Admin > Receipts > Account and settings) and uploads the receipt (photo, screenshot or PDF).
+// 2. The wallet is credited AT ONCE ("Account credited, payment confirmation under review"), and plans waiting for money are paid.
+//    Two exceptions wait for an admin instead: the exact same receipt file was uploaded before, or the amount is above the
+//    "largest amount credited at once" setting (0 = no limit). With "Credit as soon as a receipt is uploaded" turned off in the
+//    settings, every receipt waits for an admin (the old way).
+// 3. Every credited receipt is listed in Admin > Receipts > To check. The admin compares it with the bank statement and CONFIRMS it,
+//    or REVERSES it (the money is taken back from the wallet; the balance may go below zero if it was already spent, and plans
+//    then wait until the member tops up again).
+// 4. If an AI key is set (see "which AI reads the receipts"), each receipt is also read in the background to help the admin:
+//    amount exactly right, paid into our account number, dated within max_age_days, transaction reference not used before,
+//    successful and not edited. It only adds ✓/✗ flags in Admin > Receipts; it never delays or blocks the credit.
 const W = require(`${__hooks}/wallet.js`);
 const TAX = 100, MIN = 100, MAX = 5000000, PER_DAY = 15;
 const env = k => $os.getenv(k) || "";
@@ -218,56 +214,39 @@ function submit(app, uid, amount, file, senderName) {
   try { const f = receiptData(app, d); hash = $security.sha256(f.data); } catch (_) { }
   d.set("receipt_hash", hash);
 
-  const read = readReceipt(app, d, 25);
-  if (!read.ok && read.retry) {                                   // finished in the background (cron below); the member is told live
-    d.set("verified", "queued"); d.set("check", { read: false, queued: true, tries: 1, error: read.error });
-    d.set("check_note", "Your receipt is being checked. You will be notified in a minute or two.");
-    app.save(d);
-    return { status: "pending", queued: true, id: d.id, message: "Receipt received. We are checking it now and will notify you in a minute or two; you can leave this page." };
-  }
-  return decide(app, d, read, S);
-}
-
-// Applies the result of reading a receipt: credits it when every check passes (and automatic approval allows it), otherwise leaves it for an admin.
-function decide(app, d, read, S) {
-  const amount = d.getFloat("amount");
-  d.set("verified", "");
-  if (!read.ok) {
-    d.set("check", { read: false, error: read.error }); d.set("check_note", "Waiting for an admin to check your receipt.");
-    app.save(d);
-    return { status: "pending", id: d.id, message: "Receipt received. An admin will check it and credit your wallet." };
-  }
-  const ev = evaluate(app, d, read.data, S);
-  d.set("receipt_ref", ev.ref || "");
-  d.set("check", { read: true, ai: read.data, checks: ev.checks, reasons: ev.reasons });
+  // the same file uploaded before is never credited twice: it waits for an admin
+  const dup = hash ? app.findRecordsByFilter("deposits", "receipt_hash = {:h} && id != {:id}", "", 1, 0, { h: hash, id: d.id }) : [];
   const tooBig = S.auto_max > 0 && d.getFloat("total") > S.auto_max;
-  if (ev.pass && S.auto_approve && !tooBig) {
-    d.set("check_note", "Receipt checked automatically.");
+  d.set("ai_state", provider() ? "queued" : "");                 // read in the background to help the admin (processQueue)
+  d.set("check", { read: false });
+  if (dup.length || tooBig || !S.auto_approve) {
+    d.set("check_note", dup.length ? "This receipt file was already uploaded before; an admin will check it." : tooBig ? "Large deposit: an admin will check it and credit your wallet." : "An admin will check your receipt and credit your wallet.");
     app.save(d);
-    let ok = false;
-    W.inTx((tx) => { const x = tx.findRecordById("deposits", d.id); if (x.getString("status") !== "pending") return; creditDeposit(tx, x, "auto"); ok = true; });
-    if (ok) return { status: "successful", id: d.id, amount, message: W.naira(amount) + " has been added to your wallet." };
+    return { status: "pending", id: d.id, message: dup.length ? "This receipt was already uploaded before, so it was not credited again. An admin will check it." : "Receipt received. An admin will check it and credit your wallet." };
   }
-  d.set("check_note", ev.pass ? (tooBig ? "Amount is above the automatic limit; waiting for an admin." : "Waiting for an admin to check your receipt.") : ev.reasons.join(" "));
+  d.set("check_note", "Account credited. Payment confirmation under review.");
   app.save(d);
-  return { status: "pending", id: d.id, message: ev.pass ? "Receipt received. An admin will check it and credit your wallet." : "We could not confirm this receipt automatically: " + ev.reasons.join(" ") + " An admin will check it." };
+  W.inTx((tx) => { const x = tx.findRecordById("deposits", d.id); if (x.getString("status") === "pending") creditDeposit(tx, x, "auto"); });
+  return { status: "successful", id: d.id, amount, message: "Account credited with " + W.naira(amount) + ". Payment confirmation under review." };
 }
 
-// Background reading of receipts that were slow the first time (called every minute by wallet.pb.js). Gives up after 5 tries
-// (the receipt then simply waits for an admin). An admin approving or rejecting it meanwhile takes it out of the queue.
+// Background reading of receipts (every minute, wallet.pb.js): stores what was read and the ✓/✗ checks for the admin. Never moves money.
+// A slow or busy reader is retried up to 5 times; after that the receipt shows "not read" and the admin checks it by eye.
 function processQueue(app, budgetMs) {
+  if (!provider()) return 0;
   const t0 = Date.now(), S = settingsObj(app);
-  const list = app.findRecordsByFilter("deposits", "status = 'pending' && verified = 'queued'", "created", 20, 0);
+  const list = app.findRecordsByFilter("deposits", "ai_state = 'queued'", "created", 20, 0);
   let n = 0;
   for (const d of list) {
     if (Date.now() - t0 > budgetMs) break;
     const c = d.get("check") || {}, tries = (Number(c.tries) || 0) + 1;
     const read = readReceipt(app, d, 40);
     const x = app.findRecordById("deposits", d.id);
-    if (x.getString("status") !== "pending" || x.getString("verified") !== "queued") continue;   // an admin dealt with it meanwhile
-    if (!read.ok && read.retry && tries < 5) { x.set("check", { read: false, queued: true, tries, error: read.error }); app.save(x); continue; }
-    decide(app, x, read.ok || !read.retry ? read : { ok: false, error: "Could not be read automatically (" + read.error + ")." }, S);
-    n++;
+    if (!read.ok && read.retry && tries < 5) { x.set("check", { read: false, tries, error: read.error }); app.save(x); continue; }
+    if (!read.ok) { x.set("check", { read: false, error: read.error }); x.set("ai_state", "failed"); app.save(x); n++; continue; }
+    const ev = evaluate(app, x, read.data, S);
+    x.set("receipt_ref", ev.ref || ""); x.set("check", { read: true, ai: read.data, checks: ev.checks, reasons: ev.reasons }); x.set("ai_state", "done");
+    app.save(x); n++;
   }
   return n;
 }
@@ -289,9 +268,10 @@ function review(app, adminId, depId, action, note) {
       stamp(); d.set("status", "failed"); d.set("verified", ""); d.set("check_note", note || "Rejected: payment not received."); tx.save(d);
       out = { status: "failed" };
     } else if (action === "reread") {
-      if (st !== "pending" || !d.getString("receipt")) throw new BadRequestError("Only a waiting receipt can be read again.");
-      d.set("verified", "queued"); d.set("check", { read: false, queued: true, tries: 0 }); d.set("check_note", "Your receipt is being checked again."); tx.save(d);
-      out = { status: "pending", queued: true };
+      if (!d.getString("receipt")) throw new BadRequestError("This deposit has no receipt.");
+      if (!provider()) throw new BadRequestError("Automatic receipt reading is not set up.");
+      d.set("ai_state", "queued"); d.set("check", { read: false, tries: 0 }); tx.save(d);
+      out = { status: st, queued: true };
     } else if (action === "confirm") {
       if (st !== "successful") throw new BadRequestError("Only a credited deposit can be confirmed.");
       stamp(); d.set("verified", "admin"); if (note) d.set("check_note", note); tx.save(d);

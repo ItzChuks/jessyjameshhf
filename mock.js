@@ -135,7 +135,7 @@ function createMockPB() {
       db.deposits.push(d); emit('deposits', 'create', d);
       post(aid, amount, 'topup', 'Bank transfer (receipt checked automatically)', { ref: 'TRANSFER-' + d.id });
       const f = { id: uid(), created: now(), user: aid, type: 'tax', amount: 100, status: 'confirmed', note: 'Tax charge on deposit', tx_ref: d.tx_ref }; db.fees.push(f); emit('fees', 'create', f);
-      collect(aid); save(); return { status: 'successful', id: d.id, amount, message: n(amount) + ' has been added to your wallet (demo).' };
+      collect(aid); save(); return { status: 'successful', id: d.id, amount, message: 'Account credited with ' + n(amount) + '. Payment confirmation under review (demo).' };
     }
     if (path.endsWith('/admin/transfer')) {
       if (me.role !== 'admin') throw new Error('Admins only.');
