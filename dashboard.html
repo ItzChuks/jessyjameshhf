@@ -1,5 +1,5 @@
 <!DOCTYPE html><html lang="en"><head>
-<link rel="preconnect" href="https://jessyjameshhf-production.up.railway.app" crossorigin><link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><link rel="stylesheet" href="tailwind.css?v=20261111c"><script src="theme.js?v=20261111c"></script><script src="https://cdn.jsdelivr.net/npm/pocketbase@0.26.8/dist/pocketbase.umd.js"></script><script src="mock.js?v=20261111c"></script><script src="pdf.js?v=20261111c"></script><script src="app.js?v=20261111c"></script><title>Dashboard – Jessy James Helping Hands Foundation</title></head>
+<link rel="preconnect" href="https://jessyjameshhf-production.up.railway.app" crossorigin><link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><link rel="stylesheet" href="tailwind.css?v=20261111d"><script src="theme.js?v=20261111d"></script><script src="https://cdn.jsdelivr.net/npm/pocketbase@0.26.8/dist/pocketbase.umd.js"></script><script src="mock.js?v=20261111d"></script><script src="pdf.js?v=20261111d"></script><script src="app.js?v=20261111d"></script><title>Dashboard – Jessy James Helping Hands Foundation</title></head>
 <body class="bg-slate-50 text-slate-800"><div id="app"></div>
 <script>
 if (guard()) {
@@ -173,7 +173,9 @@ const startApp = () => layout({ brand: BRAND_SHORT, nav: [['overview', 'Overview
   async mine(m) {
     const [s, p, po, bal] = await Promise.all([subs(), pays(), pb.collection('payouts').getFullList({ filter: uf() }), walletBal()]);
     // one card per group (plans joined together share one card and one plan code); each membership keeps its own payments
-    m.innerHTML = head('My contributions', 'Your plans are paid from your wallet automatically. Plans joined together are shown as one card; each plan has its own plan code.') + waitBanner(waits(s, p, bal), bal) + (s.length ? '<div class="grid md:grid-cols-2 gap-4">' + groupSubs(s).map(g => {
+    const myOpen = s.filter(x => codeStatus(x) === 'open').map(x => x.code);
+    window._myOpen = myOpen;
+    m.innerHTML = head('My contributions', 'Your plans are paid from your wallet automatically. Plans joined together are shown as one card; each plan has its own plan code.', myOpen.length > 1 ? `<button type="button" onclick="copyCodes(window._myOpen)" class="${btn2}">Copy all my usable codes (${myOpen.length})</button>` : '') + waitBanner(waits(s, p, bal), bal) + (s.length ? '<div class="grid md:grid-cols-2 gap-4">' + groupSubs(s).map(g => {
       const x = g.lead, N = g.n, ms = g.members, pl = planOf(x), one = pl.amount * sched(x, pl).n, t = one * N, paid = ms.reduce((a, mm) => a + sum(p, mm.id), 0), pc = Math.min(100, Math.round(paid / t * 100) || 0);
       const sts = ms.map(mm => planState(mm, pl, p)), st = sts[0], minPaid = Math.min(...sts.map(z => z.paid)), maxPaid = Math.max(...sts.map(z => z.paid));
       const wss = x.status === 'active' ? ms.map((mm, k) => walletStatus(mm, pl, sts[k], bal)) : [{ s: 'done' }];

@@ -344,8 +344,9 @@ function groupCodes(members) {
   const L = members.filter(m => m.code); if (!L.length) return '';
   if (L.length === 1) return codePanel(L[0]);
   const open = L.filter(m => codeStatus(m) === 'open').length;
-  return `<details class="mt-4 rounded-lg border ${open ? 'bg-emerald-50 border-emerald-200' : 'bg-slate-50'} p-3"><summary class="cursor-pointer text-sm"><span class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Plan codes</span> <span class="text-slate-700">${L.length} codes, one per plan${open ? ` · <b class="text-emerald-800">${open} usable now</b>` : ''}</span></summary>
-    <div class="mt-2 max-h-56 overflow-y-auto divide-y border rounded-lg bg-white">${L.map(m => `<div class="flex flex-wrap items-center gap-2 px-3 py-1.5"><span class="font-mono text-sm font-semibold tracking-wider ${codeStatus(m) === 'open' ? 'text-slate-900' : 'text-slate-400'}">${esc(m.code)}</span>${codeBadge(m)}${codeStatus(m) === 'open' ? `<button type="button" onclick="copyCode('${esc(m.code)}')" class="ml-auto ${btn2} !py-0.5 !px-2 text-xs">Copy</button>` : m.code_used_at ? `<span class="ml-auto text-xs text-slate-500">by ${esc(m.code_used_name || 'a member')}</span>` : ''}${m.code_used_sub ? `<span class="w-full" data-ref="${esc(m.code_used_sub)}"></span>` : ''}</div>`).join('')}</div>
+  return `<details data-ccbox class="mt-4 rounded-lg border ${open ? 'bg-emerald-50 border-emerald-200' : 'bg-slate-50'} p-3"><summary class="cursor-pointer text-sm"><span class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Plan codes</span> <span class="text-slate-700">${L.length} codes, one per plan${open ? ` · <b class="text-emerald-800">${open} usable now</b>` : ''}</span></summary>
+    ${open > 1 ? `<div class="flex flex-wrap items-center gap-2 mt-2 text-xs"><label class="inline-flex items-center gap-1.5 cursor-pointer"><input type="checkbox" onchange="tickAll(this,this.checked)" class="w-4 h-4 rounded accent-emerald-700">Select all</label><button type="button" onclick="copyTicked(this)" class="${btn2} !py-1 !px-2.5 text-xs">Copy selected</button><button type="button" onclick="copyAllIn(this)" class="${btn2} !py-1 !px-2.5 text-xs">Copy all ${open} usable</button></div>` : ''}
+    <div class="mt-2 max-h-56 overflow-y-auto divide-y border rounded-lg bg-white">${L.map(m => `<div class="flex flex-wrap items-center gap-2 px-3 py-1.5">${open > 1 && codeStatus(m) === 'open' ? `<input type="checkbox" data-cc="${esc(m.code)}" aria-label="Select ${esc(m.code)}" class="w-4 h-4 rounded accent-emerald-700">` : ''}<span class="font-mono text-sm font-semibold tracking-wider ${codeStatus(m) === 'open' ? 'text-slate-900' : 'text-slate-400'}">${esc(m.code)}</span>${codeBadge(m)}${codeStatus(m) === 'open' ? `<button type="button" onclick="copyCode('${esc(m.code)}')" class="ml-auto ${btn2} !py-0.5 !px-2 text-xs">Copy</button>` : m.code_used_at ? `<span class="ml-auto text-xs text-slate-500">by ${esc(m.code_used_name || 'a member')}</span>` : ''}${m.code_used_sub ? `<span class="w-full" data-ref="${esc(m.code_used_sub)}"></span>` : ''}</div>`).join('')}</div>
     <p class="text-xs text-slate-500 mt-1.5">Each code works once and joins one plan. ${L[0] && codeStatus(L[0]) === 'soon' ? 'They open on ' + fmtDay(parseTs(L[0].code_from)) + '.' : 'Usable until the end of ' + lastDay(L[0]) + '.'}</p></details>`;
 }
 // How a plan joined with a plan code is going (status, payments so far). Put <span data-ref="ID"></span> anywhere (ID = the code's
@@ -373,7 +374,19 @@ const refLine = r => !r ? '' : r.gone ? '<span class="text-slate-400">That plan 
 })();
 // a live change to a plan makes its line fetch again next time it is drawn
 const refForget = id => { delete REF[id]; };
-window.copyCode = c => navigator.clipboard?.writeText(c).then(() => toast('Code copied: ' + c), () => toast(c));
+// copy text, with a fallback for browsers that block the clipboard API
+const copyText = t => (navigator.clipboard?.writeText ? navigator.clipboard.writeText(t) : Promise.reject()).catch(() => {
+  const a = document.createElement('textarea'); a.value = t; a.setAttribute('readonly', ''); a.style.cssText = 'position:fixed;top:-1000px;opacity:0';
+  document.body.appendChild(a); a.select(); let ok = false; try { ok = document.execCommand('copy'); } catch (_) { } a.remove(); if (!ok) throw new Error('copy');
+});
+window.copyCode = c => copyText(c).then(() => toast('Code copied: ' + c), () => toast(c));
+// several codes at once, one per line (easy to paste into WhatsApp or the "plan codes" box)
+window.copyCodes = list => { list = [...new Set((list || []).filter(Boolean))]; if (!list.length) return toast('No codes to copy. Tick some first.', 1);
+  copyText(list.join('\n')).then(() => toast(list.length + ' code' + (list.length === 1 ? '' : 's') + ' copied.'), () => toast('Could not copy. Your codes: ' + list.join(' '), 1, 12000)); };
+// tick boxes: <input type="checkbox" data-cc="CODE"> inside a box marked data-ccbox; these copy the ticked ones / all of them
+window.copyTicked = el => copyCodes([...el.closest('[data-ccbox]').querySelectorAll('[data-cc]:checked')].map(b => b.dataset.cc));
+window.copyAllIn = el => copyCodes([...el.closest('[data-ccbox]').querySelectorAll('[data-cc]')].map(b => b.dataset.cc));
+window.tickAll = (el, on) => el.closest('[data-ccbox]').querySelectorAll('[data-cc]').forEach(b => { b.checked = on; });
 
 // ===== deposits by bank transfer with a receipt (pb_hooks/transfers.js) =====
 // Online payment partners (Flutterwave, Paystack, Monnify) are paused. The member transfers the amount + the ₦100 charge to the

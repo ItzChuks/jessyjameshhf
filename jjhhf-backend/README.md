@@ -107,6 +107,9 @@ plan and its payout requests are shown and marked paid together.
 - **Plans joined with a plan code**: wherever "used by" shows (Plan codes page, code page, member page, the member's own
   dashboard), the joined plan's status and payments so far are shown too (`GET /api/jjhhf/code/referred?ids=`; members only
   see plans joined with their own codes).
+- **Copy several plan codes**: members get "Copy all my usable codes" on My contributions, plus tick boxes, Copy selected and
+  Copy all on each group card; admins get "Copy usable codes" on a member's page and tick boxes, Copy selected and
+  "Copy all … in this list" (all pages, follows the filter and search) on Plan codes. Codes are copied one per line.
 - **Live updates**: pages update themselves only when nobody is using them; otherwise a "New updates" button appears.
 - **Delete plan** (Plans page: Delete on a row, in the plan panel, or tick several; member page: Delete on a plan card):
   erases the plan(s) and everything linked: member plans (a group card goes as a whole; deleting a plan type removes every
