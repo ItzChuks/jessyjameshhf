@@ -182,6 +182,27 @@ routerAdd("POST", "/api/jjhhf/code/check", (e) => {
   return e.json(200, { status: c.status, code: c.code, count: c.count || 1, message: c.message, plan: c.plan || "", from: c.from ? c.from.toISOString() : "", until: c.until ? c.until.toISOString() : "" });
 }, $apis.requireAuth());
 
+// 8b) How the plans joined with your plan codes are going. ids = the referred plans (code_used_sub of the codes), comma separated.
+//     A member gets only plans joined with their own codes; an admin gets any. Returns { id: { plan, status, paid, total, overdue, next } }.
+routerAdd("GET", "/api/jjhhf/code/referred", (e) => {
+  const R = require(`${__hooks}/rules.js`);
+  const admin = e.auth.getString("role") === "admin";
+  const ids = String(e.request.url.query().get("ids") || "").split(",").map(x => x.trim()).filter(Boolean).slice(0, 200);
+  const out = {};
+  ids.forEach(id => {
+    if (!admin) {   // must be a plan joined with one of this member's codes
+      if (!$app.findRecordsByFilter("subscriptions", "user = {:u} && code_used_sub = {:s}", "", 1, 0, { u: e.auth.id, s: id }).length) return;
+    }
+    let s; try { s = $app.findRecordById("subscriptions", id); } catch (_) { out[id] = { gone: true }; return; }
+    let plan; try { plan = $app.findRecordById("plans", s.getString("plan")); } catch (_) { out[id] = { gone: true }; return; }
+    const pl = R.planObj(plan), sub = { id: s.id, created: s.getString("created"), no_penalty_before: s.getString("no_penalty_before") };
+    const paid = s.getInt("paid_count"), total = R.sched(sub, pl).n, st = R.stateFromPaid(sub, pl, paid, new Date());
+    out[id] = { plan: plan.getString("name"), amount: pl.amount, frequency: plan.getString("frequency"), status: s.getString("status"), paid, total,
+      overdue: s.getString("status") === "active" ? (st.overdue || 0) : 0, next: st.left && s.getString("status") === "active" && st.next ? st.next.toISOString() : "", started: s.getString("created") };
+  });
+  return e.json(200, out);
+}, $apis.requireAuth());
+
 // 9) Admin: change a plan code's status. status: "used" | "expired" (marked by the foundation) | "auto" (restore: back to its normal dates)
 //    | "open" (a code that is not open yet becomes usable now; its last day stays the same).
 //    A code that a member actually used cannot be changed.
@@ -328,7 +349,8 @@ routerAdd("POST", "/api/jjhhf/admin/edit-plan", (e) => {
   if (e.auth.getString("role") !== "admin") throw new ForbiddenError("Admins only.");
   const b = e.requestInfo().body || {};
   let out = {};
-  W.inTx((tx) => { out = W.editGroup(tx, String(b.subscription || ""), { days: b.days, amount_paid: b.amount_paid, charge_penalty: b.charge_penalty === undefined ? undefined : !!b.charge_penalty, charge_difference: !!b.charge_difference, note: b.note }); });
+  W.inTx((tx) => { out = W.editGroup(tx, String(b.subscription || ""), { days: b.days, amount_paid: b.amount_paid, charge_penalty: b.charge_penalty === undefined ? undefined : !!b.charge_penalty, charge_difference: !!b.charge_difference, note: b.note,
+    plan: b.plan, status: b.status, code_from: b.code_from, code_until: b.code_until, give_code: !!b.give_code, move_code: !!b.move_code, clearance_paid: b.clearance_paid === undefined ? undefined : !!b.clearance_paid }); });
   return e.json(200, out);
 }, $apis.requireAuth());
 

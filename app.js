@@ -38,7 +38,8 @@ button[data-busy]::after{content:"";position:absolute;inset:0;margin:auto;width:
 @keyframes jjspin{to{transform:rotate(360deg)}}
 #jjbar{position:fixed;top:0;left:0;height:3px;width:0;z-index:9999;background:#f59e0b;opacity:0;transition:width .3s ease,opacity .3s ease;pointer-events:none}`;
   (document.head || document.documentElement).appendChild(css);
-  let bar = null, inflight = 0, barT = null;
+  let bar = null, inflight = 0, barT = null, navAt = Date.now();
+  addEventListener('hashchange', () => { if (Date.now() - (window._jjQuiet || 0) > 500) navAt = Date.now(); }, true);
   const showBar = () => { if (!document.body) return; bar = bar || document.body.appendChild(Object.assign(document.createElement('div'), { id: 'jjbar' }));
     clearTimeout(barT); bar.style.opacity = '1'; bar.style.width = Math.min(90, (parseFloat(bar.style.width) || 10) + 25) + '%'; };
   const hideBar = () => { if (!bar) return; bar.style.width = '100%'; barT = setTimeout(() => { bar.style.opacity = '0'; setTimeout(() => { if (!inflight) bar.style.width = '0'; }, 300); }, 150); };
@@ -60,8 +61,10 @@ button[data-busy]::after{content:"";position:absolute;inset:0;margin:auto;width:
     const url = String((input && input.url) || input || ''), quiet = /\/api\/realtime/.test(url);   // the live connection is not a click
     const b = quiet ? null : owner();
     if (b) busy(b);
-    if (!quiet) { inflight++; showBar(); }
-    const end = () => { if (b) done(b); if (!quiet && --inflight <= 0) { inflight = 0; hideBar(); } };
+    const bg = !b && (Date.now() - (window._jjQuiet || 0) < 3000 || Date.now() - navAt > 3000);   // background refresh: no bar
+    const counted = !quiet && !bg;
+    if (counted) { inflight++; showBar(); }
+    const end = () => { if (b) done(b); if (counted && --inflight <= 0) { inflight = 0; hideBar(); } };
     let p; try { p = f0(input, init); } catch (x) { end(); throw x; }
     return p.then(r => { end(); return r; }, x => { end(); throw x; });
   };
@@ -331,7 +334,7 @@ function codePanel(sub) {
   const body = {
     soon: `<p class="text-sm text-slate-600">Your plan code opens on <b>${fmtDay(parseTs(sub.code_from))}</b> and can be used until the end of <b>${lastDay(sub)}</b>.${codeCount(sub) > 1 ? ` It carries <b>${codeCount(sub)} plans</b>.` : ''}</p>`,
     open: `<div class="flex flex-wrap items-center gap-3">${code}<button type="button" onclick="copyCode('${esc(sub.code)}')" class="${btn2} !py-1 !px-2.5 text-xs">Copy</button></div><p class="text-xs text-slate-500 mt-1.5">Use it (or share it) when joining a new plan, before the end of <b class="text-slate-700">${lastDay(sub)}</b>. It works once${codeCount(sub) > 1 ? ` and carries <b class="text-slate-700">${codeCount(sub)} plans</b>: whoever uses it joins ${codeCount(sub)} plans at once` : ''}.</p>`,
-    used: `<div class="flex flex-wrap items-center gap-3">${code}${codeBadge(sub)}</div><p class="text-xs text-slate-500 mt-1.5">${sub.code_used_at ? `Used by <b class="text-slate-700">${esc(sub.code_used_name || 'a member')}</b> on ${date(sub.code_used_at)}.` : `Marked as used by the foundation on ${date(sub.code_admin_at)}.`}</p>`,
+    used: `<div class="flex flex-wrap items-center gap-3">${code}${codeBadge(sub)}</div><p class="text-xs text-slate-500 mt-1.5">${sub.code_used_at ? `Used by <b class="text-slate-700">${esc(sub.code_used_name || 'a member')}</b> on ${date(sub.code_used_at)}.${sub.code_used_sub ? `<span data-ref="${esc(sub.code_used_sub)}"></span>` : ''}` : `Marked as used by the foundation on ${date(sub.code_admin_at)}.`}</p>`,
     expired: `<div class="flex flex-wrap items-center gap-3">${code}${codeBadge(sub)}</div><p class="text-xs text-slate-500 mt-1.5">${sub.code_admin === 'expired' ? `Marked as expired by the foundation on ${date(sub.code_admin_at)}.` : `Expired at the end of ${lastDay(sub)} without being used.`}</p>`,
   }[st];
   return `<div class="mt-4 rounded-lg border ${st === 'open' ? 'bg-emerald-50 border-emerald-200' : 'bg-slate-50'} p-3"><p class="text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-1.5">Plan code</p>${body}</div>`;
@@ -342,9 +345,34 @@ function groupCodes(members) {
   if (L.length === 1) return codePanel(L[0]);
   const open = L.filter(m => codeStatus(m) === 'open').length;
   return `<details class="mt-4 rounded-lg border ${open ? 'bg-emerald-50 border-emerald-200' : 'bg-slate-50'} p-3"><summary class="cursor-pointer text-sm"><span class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Plan codes</span> <span class="text-slate-700">${L.length} codes, one per plan${open ? ` · <b class="text-emerald-800">${open} usable now</b>` : ''}</span></summary>
-    <div class="mt-2 max-h-56 overflow-y-auto divide-y border rounded-lg bg-white">${L.map(m => `<div class="flex flex-wrap items-center gap-2 px-3 py-1.5"><span class="font-mono text-sm font-semibold tracking-wider ${codeStatus(m) === 'open' ? 'text-slate-900' : 'text-slate-400'}">${esc(m.code)}</span>${codeBadge(m)}${codeStatus(m) === 'open' ? `<button type="button" onclick="copyCode('${esc(m.code)}')" class="ml-auto ${btn2} !py-0.5 !px-2 text-xs">Copy</button>` : m.code_used_at ? `<span class="ml-auto text-xs text-slate-500">by ${esc(m.code_used_name || 'a member')}</span>` : ''}</div>`).join('')}</div>
+    <div class="mt-2 max-h-56 overflow-y-auto divide-y border rounded-lg bg-white">${L.map(m => `<div class="flex flex-wrap items-center gap-2 px-3 py-1.5"><span class="font-mono text-sm font-semibold tracking-wider ${codeStatus(m) === 'open' ? 'text-slate-900' : 'text-slate-400'}">${esc(m.code)}</span>${codeBadge(m)}${codeStatus(m) === 'open' ? `<button type="button" onclick="copyCode('${esc(m.code)}')" class="ml-auto ${btn2} !py-0.5 !px-2 text-xs">Copy</button>` : m.code_used_at ? `<span class="ml-auto text-xs text-slate-500">by ${esc(m.code_used_name || 'a member')}</span>` : ''}${m.code_used_sub ? `<span class="w-full" data-ref="${esc(m.code_used_sub)}"></span>` : ''}</div>`).join('')}</div>
     <p class="text-xs text-slate-500 mt-1.5">Each code works once and joins one plan. ${L[0] && codeStatus(L[0]) === 'soon' ? 'They open on ' + fmtDay(parseTs(L[0].code_from)) + '.' : 'Usable until the end of ' + lastDay(L[0]) + '.'}</p></details>`;
 }
+// How a plan joined with a plan code is going (status, payments so far). Put <span data-ref="ID"></span> anywhere (ID = the code's
+// code_used_sub); this fills it in, a batch at a time, through /api/jjhhf/code/referred.
+const REF = {};
+const refLine = r => !r ? '' : r.gone ? '<span class="text-slate-400">That plan no longer exists.</span>'
+  : `${esc(r.plan)} · <b class="${r.status === 'active' ? 'text-emerald-800' : 'text-slate-700'}">${r.status === 'active' ? 'Running' : r.status === 'completed' ? 'Completed' : 'Cancelled'}</b> · <b class="text-slate-700">${r.paid} of ${r.total}</b> payment${r.total === 1 ? '' : 's'} made${r.overdue ? ` · <span class="text-red-600">${r.overdue} overdue</span>` : ''}${r.next && !r.overdue ? ` · next due ${fmtDay(new Date(r.next))}` : ''}`;
+(() => {
+  if (typeof MutationObserver === 'undefined') return;
+  let t = null;
+  const paint = () => document.querySelectorAll('[data-ref]').forEach(el => { const r = REF[el.dataset.ref]; if (r !== undefined && !el.dataset.refDone) { el.dataset.refDone = 1; el.innerHTML = r ? '<span class="block text-xs text-slate-500 mt-0.5">' + refLine(r) + '</span>' : ''; } });
+  const run = async () => {
+    t = null; paint();
+    const need = [...new Set([...document.querySelectorAll('[data-ref]:not([data-ref-done])')].map(el => el.dataset.ref))].filter(id => id && REF[id] === undefined);
+    for (let i = 0; i < need.length; i += 100) {
+      const ids = need.slice(i, i + 100);
+      try { const r = await pb.send('/api/jjhhf/code/referred?ids=' + encodeURIComponent(ids.join(',')), { method: 'GET' }); ids.forEach(id => REF[id] = r[id] || null); }
+      catch (_) { ids.forEach(id => REF[id] = null); }
+    }
+    paint();
+  };
+  addEventListener('hashchange', () => { Object.keys(REF).forEach(k => delete REF[k]); }, true);
+  const start = () => new MutationObserver(() => { if (!t && document.querySelector('[data-ref]:not([data-ref-done])')) t = setTimeout(run, 60); }).observe(document.body, { childList: true, subtree: true });
+  document.body ? start() : addEventListener('DOMContentLoaded', start);
+})();
+// a live change to a plan makes its line fetch again next time it is drawn
+const refForget = id => { delete REF[id]; };
 window.copyCode = c => navigator.clipboard?.writeText(c).then(() => toast('Code copied: ' + c), () => toast(c));
 
 // ===== deposits by bank transfer with a receipt (pb_hooks/transfers.js) =====
@@ -661,11 +689,32 @@ function layout({ brand, sub = 'Helping Hands Foundation', nav, views, alias = {
   const typing = () => { const a = document.activeElement; return !!a && (a.tagName === 'TEXTAREA' || (a.tagName === 'INPUT' && /^(text|search|number|tel|email|password|url)$/.test(a.type))); };
   const busyUI = () => $('[data-ui]') || $('#dr') || typing();
   // One re-draw is scheduled at a time (later changes ride along with it), never more often than minGap, and never while typing or in a pop-up.
+  // While someone is using the page (clicked, scrolled or typed in the last 20 s, or scrolled down), a live change does not re-draw it
+  // under them: a small "New updates" button appears instead and re-draws when tapped (or when they go to another page).
+  let lastUse = 0, pill = null;
+  ['pointerdown', 'keydown', 'wheel', 'touchstart', 'scroll'].forEach(ev => addEventListener(ev, () => { lastUse = Date.now(); }, { passive: true, capture: true }));
+  const hidePill = () => { if (pill) { pill.remove(); pill = null; } };
+  const showPill = () => {
+    if (pill || !document.body) return;
+    pill = document.createElement('button'); pill.type = 'button'; pill.textContent = '↻ New updates · tap to show';
+    pill.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);bottom:5.5rem;z-index:45;background:#0f172a;color:#fff;border-radius:9999px;padding:.5rem 1rem;font-size:.875rem;font-weight:500;box-shadow:0 10px 25px rgba(0,0,0,.25)';
+    pill.onclick = () => { hidePill(); lastRun = Date.now(); refresh(); };
+    document.body.appendChild(pill);
+  };
+  let drawnAt = 0;
+  addEventListener('hashchange', () => { hidePill(); if (Date.now() - (window._jjQuiet || 0) > 500) drawnAt = Date.now(); });   // drawn by the user (navigation or after an action)
+  const quiet = () => { window._jjQuiet = Date.now(); };
   const kick = (delay = jit(300, 1200)) => {
     if (lt) return;
-    lt = setTimeout(function run() { if (busyUI()) { lt = setTimeout(run, 2000); return; } lt = null; lastRun = Date.now(); refresh(); }, Math.max(delay, minGap - (Date.now() - lastRun)));
+    lt = setTimeout(function run() {
+      if (busyUI()) { lt = setTimeout(run, 2000); return; }
+      lt = null;
+      if (Date.now() - drawnAt < 4000) return;                                    // the page was just drawn after the user's own action: already fresh
+      if (Date.now() - lastUse < 20000 || scrollY > 150) { showPill(); return; }   // in use: offer, don't re-draw
+      lastRun = Date.now(); quiet(); refresh();
+    }, Math.max(delay, minGap - (Date.now() - lastRun)));
   };
-  const side = () => { if (bt) return; bt = setTimeout(() => { bt = null; updBadges(); updChip(); }, 1500); };   // counters and wallet chip, at most every 1.5 s
+  const side = () => { if (bt) return; bt = setTimeout(() => { bt = null; quiet(); updBadges(); updChip(); }, 1500); };   // counters and wallet chip, at most every 1.5 s
   live.forEach(c => { const p = pb.collection(c).subscribe?.('*', e => {
     try { onLive?.(c, e); } catch (x) { }
     side();

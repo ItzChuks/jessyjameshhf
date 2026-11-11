@@ -100,6 +100,14 @@ plan and its payout requests are shown and marked paid together.
   what was paid through the website wallet), whether payments overdue now carry the late penalty, and the note.
 - **Suspend / Restore account** (member page): a suspended member cannot sign in or use the site and sees the reason.
   Their plans keep running.
+- **Edit plan** (member page, any status): plan (switch to another plan; with website payments only to one with the same
+  contribution), start date, amount paid, late penalty, status (running / completed / cancelled), plan code dates (a first day in
+  the past = already open; a plan without a code can be given one), clearance fee paid (marks only, no money moves) and note.
+  Changing the start date no longer moves the plan code's dates. Route: `POST /api/jjhhf/admin/edit-plan`.
+- **Plans joined with a plan code**: wherever "used by" shows (Plan codes page, code page, member page, the member's own
+  dashboard), the joined plan's status and payments so far are shown too (`GET /api/jjhhf/code/referred?ids=`; members only
+  see plans joined with their own codes).
+- **Live updates**: pages update themselves only when nobody is using them; otherwise a "New updates" button appears.
 - **Delete plan** (Plans page: Delete on a row, in the plan panel, or tick several; member page: Delete on a plan card):
   erases the plan(s) and everything linked: member plans (a group card goes as a whole; deleting a plan type removes every
   member's membership of it and then the plan), payments, payout requests, fees and wallet history. The window shows the counts

@@ -125,6 +125,13 @@ function createMockPB() {
       collect(aid); save(); return { demo: true, amount: a, fee: 100, total: a + 100 };
     }
     if (path.endsWith('/wallet/verify')) { const d = (db.deposits || []).find(x => x.tx_ref === b.tx_ref); return d ? { status: d.status, amount: d.amount, fee: d.fee, total: d.total } : { status: 'pending' }; }
+    if (path.includes('/code/referred')) {   // demo: progress of plans joined with plan codes
+      const ids = decodeURIComponent((path.split('ids=')[1] || '')).split(',').filter(Boolean), out = {};
+      ids.forEach(id => { const x = db.subscriptions.find(r => r.id === id), pl = x && db.plans.find(p => p.id === x.plan); if (!x || !pl) { out[id] = { gone: true }; return; }
+        const paid = db.payments.filter(p => p.subscription === id && p.status !== 'rejected').reduce((a, p) => a + (p.installments || 1), 0), total = pl.duration || pl.weeks || 1;
+        out[id] = { plan: pl.name, status: x.status, paid, total, overdue: 0, next: '' }; });
+      return out;
+    }
     if (path.endsWith('/code/check')) { const r = codeState(b.code); return Object.assign({}, r, { rec: undefined, count: 1 }); }
     // ---- bank transfers with a receipt (demo: every receipt "matches" and is credited at once; the real check is in pb_hooks/transfers.js) ----
     db.settings = db.settings || { bank_name: 'GTBank (demo)', account_number: '0123456789', account_name: 'Jessy James Helping Hands Foundation', transfer_note: '', auto_approve: true, auto_max: 200000, max_age_days: 2 };

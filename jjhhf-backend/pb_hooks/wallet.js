@@ -365,11 +365,57 @@ function importMany(app, uid, items, note, chargePenalty, code, chargeJoinFee, c
 // Payments made through the website wallet stay as they are: amount_paid can only be raised or lowered in what was recorded by hand
 // (plans brought over, or earlier admin edits). Afterwards the schedule is worked out again and anything due is collected.
 const MANUAL = /^(Brought over|Adjusted by admin)/;
+// Also: plan (switch to another plan; only when nothing was paid through the website), code_from / code_until ("YYYY-MM-DD",
+// sets the plan code's dates; a past first day = already open), give_code (a plan without a code gets one), clearance_paid
+// (mark the clearance fee paid / not paid, nothing is charged), status (active | completed | cancelled).
+// Schedule changes (start, amount paid, plan, penalty) need a running plan without a payout request; the rest always works.
+const has = v => v !== undefined && v !== null && v !== "";
 function editPlan(app, sid, changes) {
   let rec; try { rec = app.findRecordById("subscriptions", String(sid || "")); } catch (_) { throw new BadRequestError("Plan not found."); }
-  if (rec.getString("status") !== "active") throw new BadRequestError("Only a running (active) plan can be edited.");
-  if (app.findRecordsByFilter("payouts", "subscription = {:s} && status != 'rejected'", "", 1, 0, { s: rec.id }).length) throw new BadRequestError("This plan already has a payout request, so it cannot be edited.");
-  const plan = app.findRecordById("plans", rec.getString("plan")), pl = R.planObj(plan), A = Math.round(pl.amount), uid = rec.getString("user");
+  const uid = rec.getString("user");
+  // 0) things that never touch the schedule: status, plan code dates, clearance, note
+  if (has(changes.status)) {
+    if (!["active", "completed", "cancelled"].includes(String(changes.status))) throw new BadRequestError("Unknown status.");
+    rec.set("status", String(changes.status));
+  }
+  if (has(changes.code_from) || has(changes.code_until) || changes.give_code) {
+    if (rec.getString("code_used_at")) throw new BadRequestError("This plan code was already used by " + (rec.getString("code_used_name") || "a member") + ", so its dates cannot be changed.");
+    const cur = rec.getString("code") ? { from: R.parseTs(rec.getString("code_from")), until: R.parseTs(rec.getString("code_until")) } : null;
+    const day = d => { const L = new Date(d.getTime() + 36e5); return L.toISOString().slice(0, 10); };
+    const win = codeDatesFromAdmin({ from: has(changes.code_from) ? changes.code_from : cur ? day(cur.from) : "", until: has(changes.code_until) ? changes.code_until : cur ? day(new Date(cur.until.getTime() - 1)) : "" });
+    if (!rec.getString("code")) rec.set("code", newCode(app));
+    rec.set("code_from", ts(win.from)); rec.set("code_until", ts(win.until));
+    if (rec.getString("code_admin") === "expired") { rec.set("code_admin", ""); rec.set("code_admin_at", ""); }   // new dates replace "expired"
+  }
+  if (changes.clearance_paid !== undefined && changes.clearance_paid !== null) {
+    if (changes.clearance_paid && !rec.getString("clearance_paid_at")) rec.set("clearance_paid_at", ts(new Date()));
+    if (!changes.clearance_paid) rec.set("clearance_paid_at", "");
+  }
+  if (has(changes.note) || changes.note === "") rec.set("import_note", String(changes.note || "").trim().slice(0, 300));
+  app.save(rec);
+  const sched = has(changes.days) || has(changes.amount_paid) || has(changes.plan) || (changes.charge_penalty !== undefined && changes.charge_penalty !== null);
+  if (!sched || rec.getString("status") !== "active") {
+    const after = app.findRecordById("subscriptions", rec.id);
+    return { subscription: rec.id, paid: after.getInt("paid_count"), payments: 0, collected: rec.getString("status") === "active" ? collect(app, uid) : 0 };
+  }
+  if (app.findRecordsByFilter("payouts", "subscription = {:s} && status != 'rejected'", "", 1, 0, { s: rec.id }).length) throw new BadRequestError("This plan already has a payout request, so its start date, payments and plan cannot be changed.");
+  // switch to another plan (all payments so far were recorded by hand)
+  if (has(changes.plan) && String(changes.plan) !== rec.getString("plan")) {
+    let np; try { np = app.findRecordById("plans", String(changes.plan)); } catch (_) { throw new BadRequestError("That plan does not exist."); }
+    const sitePays = app.findRecordsByFilter("payments", "subscription = {:s} && status != 'rejected'", "", 0, 0, { s: rec.id }).filter(p => !MANUAL.test(p.getString("note")));
+    const old = app.findRecordById("plans", rec.getString("plan"));
+    const same = Math.round(old.getFloat("amount")) === Math.round(np.getFloat("amount")) && old.getString("frequency") === np.getString("frequency");
+    if (sitePays.length && !same) throw new BadRequestError("Payments were made through the website on this plan, so it can only be switched to a plan with the same contribution (" + naira(old.getFloat("amount")) + " " + old.getString("frequency") + "). Otherwise delete it and add the right plan instead.");
+    if (!has(changes.amount_paid)) throw new BadRequestError("Enter the amount paid for the new plan.");
+    rec.set("plan", np.id); app.save(rec);
+    const nA = Math.round(np.getFloat("amount"));          // payments recorded by hand are re-priced at the new contribution
+    app.findRecordsByFilter("payments", "subscription = {:s} && status != 'rejected'", "", 0, 0, { s: rec.id }).forEach(p => {
+      if (MANUAL.test(p.getString("note"))) { p.set("amount", (p.getInt("installments") || 1) * nA); p.set("penalty", 0); app.save(p); }
+    });
+    app.findRecordsByFilter("wallet_txs", "subscription = {:s}", "", 0, 0, { s: rec.id }).forEach(t => { t.set("plan", np.id); app.save(t); });
+    app.findRecordsByFilter("fees", "subscription = {:s}", "", 0, 0, { s: rec.id }).forEach(f => { f.set("plan", np.id); app.save(f); });
+  }
+  const plan = app.findRecordById("plans", rec.getString("plan")), pl = R.planObj(plan), A = Math.round(pl.amount);
   // 1) start date
   if (changes.days !== undefined && changes.days !== null && changes.days !== "") {
     const days = Math.floor(Number(changes.days));
@@ -377,8 +423,8 @@ function editPlan(app, sid, changes) {
     const L = new Date(Date.now() + 36e5), start = new Date(Date.UTC(L.getUTCFullYear(), L.getUTCMonth(), L.getUTCDate() - days, 8) - 36e5);
     app.db().newQuery("UPDATE {{subscriptions}} SET [[created]] = {:c} WHERE [[id]] = {:id}").bind({ c: ts(start), id: rec.id }).execute();
     rec = app.findRecordById("subscriptions", rec.id);
-    // an unused plan code moves with the plan
-    if (rec.getString("code") && !rec.getString("code_used_at") && !rec.getString("code_admin")) {
+    // an unused plan code on the plan's usual days moves with the plan, unless the admin set its dates in this edit
+    if (!has(changes.code_from) && !has(changes.code_until) && changes.move_code && rec.getString("code") && !rec.getString("code_used_at") && !rec.getString("code_admin")) {
       const win = R.codeWindow(rec.getString("created"), plan.getInt("code_from_day"), plan.getInt("code_until_day"));
       if (win) { rec.set("code_from", ts(win.from)); rec.set("code_until", ts(win.until)); }
     }
@@ -415,7 +461,6 @@ function editPlan(app, sid, changes) {
   }
   // 3) penalty on what is overdue right now, and the note
   if (changes.charge_penalty !== undefined && changes.charge_penalty !== null) rec.set("no_penalty_before", changes.charge_penalty ? "" : ts(new Date()));
-  if (changes.note !== undefined && changes.note !== null) rec.set("import_note", String(changes.note || "").trim().slice(0, 300));
   app.save(rec);
   syncSub(app, rec.id);                                           // paid_count and next_collect from the payment history
   const took = collect(app, uid);
