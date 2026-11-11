@@ -40,8 +40,10 @@ Sign up on the website, then in the PocketBase panel open **users**, edit yourse
   - cron `jjhhf_wallet_collect` every minute, cron `jjhhf_deposit_check` every 10 minutes (re-checks pending deposits)
 - `pb_hooks/password.pb.js`: forgotten password. "Forgot password?" on the log-in page asks PocketBase to email a reset link;
   this hook replaces PocketBase's email with a branded one linking to `{SITE_URL}/auth.html?reset=<token>` (works once, 30 minutes).
-  Needs: Railway variable `SITE_URL` (e.g. `https://jessyjameshhf.com.ng`) and SMTP in the PocketBase dashboard
-  (Settings > Mail settings: sender name/address, SMTP host, port, username, password; use "Send test email" to check).
+  Needs: Railway variable `SITE_URL` (e.g. `https://jessyjameshhf.com.ng`).
+- `pb_hooks/mail.pb.js`: sends all emails through Brevo's HTTPS API, because Railway's Hobby plan blocks outbound SMTP.
+  Railway variable `BREVO_API_KEY` (optional `MAIL_FROM`, `MAIL_FROM_NAME`). The sender address must be a verified sender in Brevo.
+  Without the key, PocketBase's own Mail settings (SMTP) are used.
 - `pb_hooks/rules.js`: deadlines, penalties, plan-code windows, payout rule. `pb_hooks/fees.js`: fee and payout checks.
 
 
@@ -98,6 +100,12 @@ plan and its payout requests are shown and marked paid together.
   what was paid through the website wallet), whether payments overdue now carry the late penalty, and the note.
 - **Suspend / Restore account** (member page): a suspended member cannot sign in or use the site and sees the reason.
   Their plans keep running.
+- **Delete plan** (Plans page: Delete on a row, in the plan panel, or tick several; member page: Delete on a plan card):
+  erases the plan(s) and everything linked: member plans (a group card goes as a whole; deleting a plan type removes every
+  member's membership of it and then the plan), payments, payout requests, fees and wallet history. The window shows the counts
+  first and needs DELETE typed. "Refund" (optional, chosen each time) credits back what those plans took from each wallet,
+  minus what came back; plans already paid out are not refunded. Route: `POST /api/jjhhf/admin/delete-plan`
+  (migration `1760000018` adds the wallet entry type "refund").
 - **Reset account** (suspended members only): clears plans and plan codes, payments, payouts, fees, wallet history, deposits and
   receipt files, sets the wallet to ₦0; keeps name, email, phone, country, address and payout details (optionally also clears the
   t-shirt registration). The account stays suspended until restored. Type RESET to confirm.

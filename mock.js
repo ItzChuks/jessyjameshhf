@@ -205,6 +205,23 @@ function createMockPB() {
       });
       const before = db.payments.length; collect(b.user); save(); return { added, subscriptions: ids, subscription: ids[0], collected: db.payments.length - before };
     }
+    if (path.endsWith('/admin/delete-plan')) {   // demo copy of deletePlans in pb_hooks/wallet.js
+      if (me.role !== 'admin') throw new Error('Admins only.');
+      const P = [].concat(b.plans || []), S = new Set();
+      db.subscriptions.filter(x => P.includes(x.plan) || (b.subscriptions || []).includes(x.id)).forEach(x => S.add(x.id));
+      const G = new Set(db.subscriptions.filter(x => S.has(x.id) && x.group_id).map(x => x.group_id)); db.subscriptions.filter(x => G.has(x.group_id)).forEach(x => S.add(x.id));
+      const hit = r => S.has(r.subscription) || (r.plan && P.includes(r.plan));
+      const pays = db.payments.filter(r => S.has(r.subscription)), pos = db.payouts.filter(r => S.has(r.subscription)), fs = db.fees.filter(hit), txs = db.wallet_txs.filter(hit);
+      const paidOut = new Set(pos.filter(p => p.status === 'confirmed').map(p => p.subscription)), net = {};
+      txs.forEach(t => { if (t.subscription && paidOut.has(t.subscription)) return; net[t.user] = (net[t.user] || 0) + (t.type === 'debit' ? 1 : -1) * t.amount; });
+      Object.keys(net).forEach(u => { if (net[u] <= 0) delete net[u]; });
+      const out = { plans: P.length, subscriptions: S.size, members: new Set(db.subscriptions.filter(x => S.has(x.id)).map(x => x.user)).size, payments: pays.length, payouts: pos.length, paid_out: paidOut.size, fees: fs.length, wallet_txs: txs.length, refundable: Object.values(net).reduce((a, c) => a + c, 0), refunded: 0 };
+      if (b.preview) return out; if (b.confirm !== 'DELETE') throw new Error('Type DELETE to confirm.');
+      const gone = (c, list) => { const ids = new Set(list.map(r => r.id)); db[c] = db[c].filter(r => !ids.has(r.id)); list.forEach(r => emit(c, 'delete', r)); };
+      gone('payments', pays); gone('payouts', pos); gone('fees', fs); gone('wallet_txs', txs); gone('subscriptions', db.subscriptions.filter(x => S.has(x.id))); gone('plans', db.plans.filter(p => P.includes(p.id)));
+      if (b.refund) Object.keys(net).forEach(u => { post(u, net[u], 'refund', 'Refund · plan deleted by the foundation'); out.refunded += net[u]; });
+      save(); return out;
+    }
     if (path.endsWith('/admin/code-status')) {
       if (me.role !== 'admin') throw new Error('Admins only.');
       const r = db.subscriptions.find(x => x.id === b.subscription); if (!r || !r.code) throw new Error('Plan code not found.');

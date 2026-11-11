@@ -442,6 +442,64 @@ function setGroupStatus(app, sid, status) {
 // Deletes every plan (and its plan code), payment, payout, fee, wallet history line and deposit (with its receipt file) of a member,
 // inside the caller's transaction. Other members who used one of their plan codes keep their plans ("used by Deleted member").
 // Returns how many records of each kind were deleted.
+// ---- admin: delete plans and everything linked to them ----
+// target = { plans: [plan ids] (a plan type: every member's membership of it is deleted too, then the plan itself),
+//            subscriptions: [subscription ids] (a member's plan; a plan in a group takes its whole group with it) }
+// Deletes the memberships, their payments, payout requests, fees and wallet history. Plan codes that these memberships
+// used stay "used" on the other plan. refund: money the members paid into them (net of what came back to the wallet)
+// is credited back to their wallets as one "Refund" entry each; memberships already paid out are never refunded.
+// dry: count only, change nothing.
+function deletePlans(app, target, refund, dry) {
+  const planIds = [...new Set((target.plans || []).map(String).filter(Boolean))];
+  const subIds = new Set();
+  planIds.forEach(pid => { try { app.findRecordById("plans", pid); } catch (_) { throw new BadRequestError("Plan not found."); } });
+  const seed = [];
+  planIds.forEach(pid => app.findRecordsByFilter("subscriptions", "plan = {:p}", "", 0, 0, { p: pid }).forEach(r => seed.push(r)));
+  (target.subscriptions || []).map(String).filter(Boolean).forEach(sid => {
+    let r; try { r = app.findRecordById("subscriptions", sid); } catch (_) { throw new BadRequestError("Plan not found."); }
+    seed.push(r);
+  });
+  const groups = new Set();
+  seed.forEach(r => { subIds.add(r.id); if (r.getString("group_id")) groups.add(r.getString("group_id")); });
+  groups.forEach(g => app.findRecordsByFilter("subscriptions", "group_id = {:g}", "", 0, 0, { g }).forEach(r => subIds.add(r.id)));
+  if (!subIds.size && !planIds.length) throw new BadRequestError("Nothing to delete.");
+  const subs = [...subIds].map(id => app.findRecordById("subscriptions", id));
+  const by = (c, field, ids) => { const out = new Map(); ids.forEach(id => app.findRecordsByFilter(c, field + " = {:x}", "", 0, 0, { x: id }).forEach(r => out.set(r.id, r))); return out; };
+  const payments = by("payments", "subscription", subIds), payouts = by("payouts", "subscription", subIds);
+  const fees = by("fees", "subscription", subIds), txs = by("wallet_txs", "subscription", subIds);
+  by("fees", "plan", planIds).forEach((r, k) => fees.set(k, r));
+  by("wallet_txs", "plan", planIds).forEach((r, k) => txs.set(k, r));
+  const paidOut = new Set([...payouts.values()].filter(p => p.getString("status") === "confirmed").map(p => p.getString("subscription")));
+  // money per member: what these plans took from the wallet minus what came back to it
+  const net = {};
+  txs.forEach(t => {
+    const sid = t.getString("subscription"); if (sid && paidOut.has(sid)) return;
+    const u = t.getString("user"), a = t.getFloat("amount") * (t.getString("type") === "debit" ? 1 : -1);
+    net[u] = (net[u] || 0) + a;
+  });
+  Object.keys(net).forEach(u => { net[u] = Math.round(net[u] * 100) / 100; if (net[u] <= 0) delete net[u]; });
+  const members = new Set(subs.map(r => r.getString("user")));
+  const out = {
+    plans: planIds.length, subscriptions: subs.length, members: members.size, payments: payments.size, payouts: payouts.size,
+    paid_out: paidOut.size, fees: fees.size, wallet_txs: txs.size,
+    refundable: Object.values(net).reduce((a, b) => a + b, 0), refunded: 0,
+  };
+  if (dry) return out;
+  // plan codes these memberships used elsewhere stay used; just drop the link to the deleted membership
+  subIds.forEach(sid => app.findRecordsByFilter("subscriptions", "code_used_sub = {:s}", "", 0, 0, { s: sid }).forEach(r => {
+    if (!subIds.has(r.id)) { r.set("code_used_sub", ""); app.save(r); }
+  }));
+  [payments, payouts, fees, txs].forEach(m => m.forEach(r => app.delete(r)));
+  subs.forEach(r => app.delete(r));
+  planIds.forEach(pid => app.delete(app.findRecordById("plans", pid)));
+  if (refund) Object.keys(net).forEach(u => {
+    try { app.findRecordById("users", u); } catch (_) { return; }
+    post(app, u, net[u], "refund", "Refund · " + (planIds.length ? "plan removed by the foundation" : "plan deleted by the foundation"));
+    out.refunded += net[u];
+  });
+  return out;
+}
+
 const MEMBER_DATA = ["payments", "payouts", "fees", "wallet_txs", "deposits", "subscriptions"];
 function wipeMemberData(app, uid, usedByLabel) {
   app.findRecordsByFilter("subscriptions", "code_used_by = {:u} && user != {:u}", "", 0, 0, { u: uid }).forEach(r => {
@@ -466,4 +524,4 @@ function inTx(fn) {
   }
 }
 
-module.exports = { FEES, MAX_SLOTS, naira, post, credit, collect, joinPlan, joinMany, importPlan, importMany, editPlan, editGroup, setGroupStatus, groupOf, markCodesUsed, wipeMemberData, MEMBER_DATA, balanceOf, inTx, syncSub, ts, DONE, codeState, normCode };
+module.exports = { deletePlans, FEES, MAX_SLOTS, naira, post, credit, collect, joinPlan, joinMany, importPlan, importMany, editPlan, editGroup, setGroupStatus, groupOf, markCodesUsed, wipeMemberData, MEMBER_DATA, balanceOf, inTx, syncSub, ts, DONE, codeState, normCode };

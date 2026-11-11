@@ -365,6 +365,21 @@ routerAdd("POST", "/api/jjhhf/admin/delete-user", (e) => {
   return e.json(200, { ok: true, name, removed });
 }, $apis.requireAuth());
 
+// 21b) Admin: delete plans and every record linked to them (memberships, payments, payouts, fees, wallet history).
+//      body: { plans: [ids] (plan types) | subscriptions: [ids] (a member's plan; takes its whole group), refund: bool,
+//              preview: true (counts only) | confirm: "DELETE" }
+routerAdd("POST", "/api/jjhhf/admin/delete-plan", (e) => {
+  const W = require(`${__hooks}/wallet.js`);
+  if (e.auth.getString("role") !== "admin") throw new ForbiddenError("Admins only.");
+  const b = e.requestInfo().body || {}, target = { plans: [].concat(b.plans || []), subscriptions: [].concat(b.subscriptions || []) };
+  if (b.preview) return e.json(200, W.deletePlans($app, target, !!b.refund, true));
+  if (String(b.confirm || "") !== "DELETE") throw new BadRequestError("Type DELETE to confirm.");
+  let out = {};
+  W.inTx((tx) => { out = W.deletePlans(tx, target, !!b.refund, false); });
+  console.log("jjhhf: admin", e.auth.id, "deleted plans", JSON.stringify(target), "refund", !!b.refund, JSON.stringify(out));
+  return e.json(200, out);
+}, $apis.requireAuth());
+
 // 22) Admin: complete / cancel / reactivate a plan; a group changes as a whole.
 routerAdd("POST", "/api/jjhhf/admin/plan-status", (e) => {
   const W = require(`${__hooks}/wallet.js`);
