@@ -24,6 +24,48 @@ if (!USE_MOCK) pb.afterSend = (res, data) => {
   return data;
 };
 pb.autoCancellation?.(false);   // the pages fire several identical requests in parallel; don't let the SDK cancel them
+
+// ===== loading state on buttons + a thin progress bar while the server is working =====
+// A clicked button shows a spinner and cannot be clicked again while the requests it started are running (also chained ones,
+// e.g. load then save). Works for every button on every page without changes elsewhere: requests are tracked through fetch.
+(() => {
+  if (typeof window === 'undefined' || window._jjBusy) return; window._jjBusy = true;
+  const css = document.createElement('style');
+  css.textContent = `button[data-busy]{position:relative;pointer-events:none;cursor:progress;opacity:.8}
+button[data-busy]>*,button[data-busy]{color:transparent!important}
+button[data-busy]::after{content:"";position:absolute;inset:0;margin:auto;width:1.05em;height:1.05em;border-radius:9999px;
+ border:2px solid var(--jjsp,#64748b);border-right-color:transparent;animation:jjspin .6s linear infinite}
+@keyframes jjspin{to{transform:rotate(360deg)}}
+#jjbar{position:fixed;top:0;left:0;height:3px;width:0;z-index:9999;background:#f59e0b;opacity:0;transition:width .3s ease,opacity .3s ease;pointer-events:none}`;
+  (document.head || document.documentElement).appendChild(css);
+  let bar = null, inflight = 0, barT = null;
+  const showBar = () => { if (!document.body) return; bar = bar || document.body.appendChild(Object.assign(document.createElement('div'), { id: 'jjbar' }));
+    clearTimeout(barT); bar.style.opacity = '1'; bar.style.width = Math.min(90, (parseFloat(bar.style.width) || 10) + 25) + '%'; };
+  const hideBar = () => { if (!bar) return; bar.style.width = '100%'; barT = setTimeout(() => { bar.style.opacity = '0'; setTimeout(() => { if (!inflight) bar.style.width = '0'; }, 300); }, 150); };
+  // the button that was just clicked (or whose form was just submitted) owns the requests started in the next moment
+  let armed = null, armedAt = 0;
+  const arm = b => { if (!b || b.disabled) return; armed = b; armedAt = Date.now(); };
+  const stop = e => { e.preventDefault(); e.stopImmediatePropagation(); };
+  addEventListener('click', e => { const b = e.target.closest && e.target.closest('button'); if (!b) return; if (b.hasAttribute('data-busy')) return stop(e); arm(b); }, true);
+  addEventListener('submit', e => { const b = e.submitter || e.target.querySelector('button:not([type="button"])'); if (b && b.hasAttribute('data-busy')) return stop(e); arm(b); }, true);
+  const owner = () => { if (armed && (armed._jjN > 0 || Date.now() - armedAt < 400) && armed.isConnected) return armed; return null; };
+  const busy = b => { b._jjN = (b._jjN || 0) + 1; if (b._jjN === 1) {
+    const bg = getComputedStyle(b).backgroundColor, dark = (m => m && (+m[1] * .3 + +m[2] * .59 + +m[3] * .11) < 150 && !/, 0\)$/.test(bg))(bg.match(/(\d+), (\d+), (\d+)/));
+    b.style.setProperty('--jjsp', dark ? '#fff' : '#64748b'); b.setAttribute('data-busy', ''); b.setAttribute('aria-busy', 'true'); b._jjDis = b.disabled; } };
+  const done = b => setTimeout(() => {            // short grace: a follow-up request (load, then save) keeps the spinner going
+    if (--b._jjN > 0) return; b._jjN = 0; b.removeAttribute('data-busy'); b.removeAttribute('aria-busy');
+    if (armed === b) armedAt = Date.now() - 350; }, 120);
+  const f0 = window.fetch && window.fetch.bind(window); if (!f0) return;
+  window.fetch = function (input, init) {
+    const url = String((input && input.url) || input || ''), quiet = /\/api\/realtime/.test(url);   // the live connection is not a click
+    const b = quiet ? null : owner();
+    if (b) busy(b);
+    if (!quiet) { inflight++; showBar(); }
+    const end = () => { if (b) done(b); if (!quiet && --inflight <= 0) { inflight = 0; hideBar(); } };
+    let p; try { p = f0(input, init); } catch (x) { end(); throw x; }
+    return p.then(r => { end(); return r; }, x => { end(); throw x; });
+  };
+})();
 const SUPPORT_WHATSAPP = '234' + SUPPORT_PHONE.slice(1);  // same number in international form for WhatsApp
 
 // ===== helpers =====
