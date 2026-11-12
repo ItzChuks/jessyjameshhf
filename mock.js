@@ -231,6 +231,9 @@ function createMockPB() {
     }
     if (path.endsWith('/admin/code-status')) {
       if (me.role !== 'admin') throw new Error('Admins only.');
+      if (Array.isArray(b.subscriptions)) { const until = new Date(Date.parse(b.until + 'T00:00:00Z') - 36e5 + 864e5); if (!(until > new Date())) throw new Error('The new last day must be today or later.'); let n = 0;
+        b.subscriptions.forEach(id => { const r = db.subscriptions.find(x => x.id === id); if (!r || !r.code) return; Object.assign(r, { code_used_by: '', code_used_name: '', code_used_at: '', code_used_sub: '', code_admin: '', code_admin_at: '', code_until: until.toISOString().replace('T', ' ') }); if (!(parseTs(r.code_from) <= new Date())) r.code_from = now(); emit('subscriptions', 'update', r); n++; });
+        save(); return { ok: true, reopened: n }; }
       const r = db.subscriptions.find(x => x.id === b.subscription); if (!r || !r.code) throw new Error('Plan code not found.');
       if (b.status === 'reopen') { const until = new Date(Date.parse(b.until + 'T00:00:00Z') - 36e5 + 864e5); if (!(until > new Date())) throw new Error('The new last day must be today or later.');
         Object.assign(r, { code_used_by: '', code_used_name: '', code_used_at: '', code_used_sub: '', code_admin: '', code_admin_at: '', code_until: until.toISOString().replace('T', ' ') });

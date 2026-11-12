@@ -116,6 +116,8 @@ plan and its payout requests are shown and marked paid together.
 - **Reopen a plan code** (Plan codes page, code page, member page): a used or expired code (also one marked used/expired by
   admin) becomes usable again from now until the chosen last day, once more. If a member used it, their plan keeps running.
   Route: `POST /api/jjhhf/admin/code-status` with `status: "reopen", until: "YYYY-MM-DD"`.
+  Several at once: tick codes on Plan codes and click "Reopen selected", or "Reopen all used/expired codes in this list"
+  (all pages, follows the search); the route takes `subscriptions: [ids]` instead of `subscription`.
 - **Live updates**: pages update themselves only when nobody is using them; otherwise a "New updates" button appears.
 - **Delete plan** (Plans page: Delete on a row, in the plan panel, or tick several; member page: Delete on a plan card):
   erases the plan(s) and everything linked: member plans (a group card goes as a whole; deleting a plan type removes every
