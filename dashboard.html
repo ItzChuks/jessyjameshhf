@@ -1,5 +1,5 @@
 <!DOCTYPE html><html lang="en"><head>
-<link rel="preconnect" href="https://jessyjameshhf-production.up.railway.app" crossorigin><link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><link rel="stylesheet" href="tailwind.css?v=20261111d"><script src="theme.js?v=20261111d"></script><script src="https://cdn.jsdelivr.net/npm/pocketbase@0.26.8/dist/pocketbase.umd.js"></script><script src="mock.js?v=20261111d"></script><script src="pdf.js?v=20261111d"></script><script src="app.js?v=20261111d"></script><title>Dashboard – Jessy James Helping Hands Foundation</title></head>
+<link rel="preconnect" href="https://jessyjameshhf-production.up.railway.app" crossorigin><link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><link rel="stylesheet" href="tailwind.css?v=20261112a"><script src="theme.js?v=20261112a"></script><script src="https://cdn.jsdelivr.net/npm/pocketbase@0.26.8/dist/pocketbase.umd.js"></script><script src="mock.js?v=20261112a"></script><script src="pdf.js?v=20261112a"></script><script src="app.js?v=20261112a"></script><title>Dashboard – Jessy James Helping Hands Foundation</title></head>
 <body class="bg-slate-50 text-slate-800"><div id="app"></div>
 <script>
 if (guard()) {
@@ -43,16 +43,18 @@ window.join = async id => {
     + (myCodes.length ? `<div class="text-sm"><div class="flex items-center justify-between gap-3"><span class="text-slate-600">Use your plan codes <span class="text-slate-400">(${myCodes.length} ready)</span></span><label class="flex items-center gap-2 text-xs font-medium text-emerald-800 cursor-pointer"><input type="checkbox" id="jc-all" class="w-4 h-4 rounded accent-emerald-700">Select all</label></div>
       <div class="mt-1 max-h-56 overflow-y-auto border rounded-lg divide-y">${myCodes.map(x => `<label class="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-slate-50"><input type="checkbox" data-code="${esc(x.code)}" class="w-4 h-4 rounded accent-emerald-700"><span class="font-mono font-semibold tracking-wider text-slate-900">${esc(x.code)}</span><span class="text-xs text-slate-500 truncate">${codeCount(x) > 1 ? '<b class="text-emerald-800">' + codeCount(x) + ' plans</b> · ' : ''}${esc(x.expand?.plan?.name || '')} · until ${lastDay(x)}</span></label>`).join('')}</div>
       <p id="jc-note" class="text-xs text-slate-500 mt-1">Each code joins one plan. Tick the codes to use, or Select all; the number of times you join goes up to match.</p></div>` : '')
-    + `<label class="block text-sm"><span class="text-slate-600">${myCodes.length ? 'Or enter a code shared with you' : 'Plan code'} <span class="text-slate-400">(optional)</span></span><input name="code" autocomplete="off" placeholder="JJ-XXXX-XXXX" class="${inp} mt-1 font-mono uppercase tracking-wider"></label><p id="cst" class="text-xs text-slate-500 -mt-1">Have a plan code from one of your plans, or one shared with you? Enter it here. A code works once.</p>`
+    + `<div class="text-sm"><div class="flex items-center justify-between gap-3"><label for="jcodes" class="text-slate-600">${myCodes.length ? 'Or paste codes shared with you' : 'Plan codes'} <span class="text-slate-400">(optional)</span></label><button type="button" id="jpaste" class="px-2.5 py-1 text-xs rounded-md border font-medium">Paste</button></div><textarea id="jcodes" name="code" rows="2" autocomplete="off" spellcheck="false" placeholder="Paste one or more codes (JJ-XXXX-XXXX), on separate lines or with spaces or commas" class="${inp} mt-1 font-mono text-sm uppercase tracking-wider"></textarea></div><p id="cst" class="text-xs text-slate-500 -mt-1">Copied several codes at once? Paste them all here in one go. Each code joins one plan and works once.</p>`
     + `<dl class="divide-y border rounded-lg px-3">${row('Joining fee', naira(FEES.join))}${first ? row('First payment (today)', naira(first)) : ''}${c ? row('Catch-up (' + c + ' × ' + naira(pl.amount) + ')', naira(catchup)) : ''}${row('Per membership', naira(each), '', 'jq-each')}${row('Total from your wallet', naira(each), 'font-semibold', 'jq-total')}${row('Your wallet', naira(bal))}</dl>`
     + '<div id="jq-msg"></div>'
     + '<p class="text-xs text-slate-500">By joining you agree to the <a href="terms.html" target="_blank" class="text-emerald-800 underline">Terms and Conditions</a>.</p>',
     async d => {
       const codes = picked(), q = qtyNow(), total = each * q, short = total - bal;
       if (fromCodes() > room) throw new Error('At most ' + room + ' codes can be used at once.');
-      if ((d.code || '').trim() && !typed.count) throw new Error('Check the plan code first: it is not valid.');
+      const tl = typedList();
+      if (tl.some(c => !CK[c])) throw new Error('Still checking the pasted codes. Try again in a moment.');
+      const bad = tl.filter(c => !CK[c].ok); if (bad.length) throw new Error('Remove the codes that cannot be used: ' + bad.join(', ') + '.');
       if (short > 0) { await startDeposit(short); return; }
-      const r = await payFee({ type: 'join', plan: id, qty: q, code: (d.code || '').trim(), codes });
+      const r = await payFee({ type: 'join', plan: id, qty: q, code: '', codes: allCodes() });
       toast((q > 1 ? 'Joined ' + q + ' times' : 'Plan joined') + (r.codesUsed ? ' using ' + (r.codesUsed === 1 ? '1 code' : r.codesUsed + ' codes') : '') + '. The joining fee' + (q > 1 ? 's' : '') + (first ? ' and first payment' + (q > 1 ? 's were' : ' were') : (q > 1 ? ' were' : ' was')) + ' taken from your wallet.', 0, 6000);
       location.hash = 'mine';
     },
@@ -61,9 +63,13 @@ window.join = async id => {
   const M = document.querySelector('[data-ui="modal"]'), qi = M.querySelector('[name="qty"]'), sub = M.querySelector('button:not([type])');
   const boxes = [...M.querySelectorAll('[data-code]')], all = M.querySelector('#jc-all');
   const picked = () => boxes.filter(b => b.checked).map(b => b.dataset.code);
-  const counts = Object.fromEntries(myCodes.map(x => [x.code, codeCount(x)])), typed = { code: '', count: 0 };
-  // each code in use (ticked + a valid typed one) joins one plan: the number of times is at least the number of codes
-  const fromCodes = () => picked().length + (typed.count && !picked().includes(typed.code) ? 1 : 0);
+  // pasted / typed codes: checked one by one (CK: code -> {ok, msg}); your own ready codes are known to be fine
+  const CK = {}; myCodes.forEach(x => CK[x.code] = { ok: true, own: true });
+  const normC = c => { const t = String(c || '').toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/^JJ/, ''); return t.length === 8 ? 'JJ-' + t.slice(0, 4) + '-' + t.slice(4) : String(c || '').toUpperCase().trim(); };
+  const typedList = () => [...new Set(String(M.querySelector('#jcodes').value || '').split(/[\s,;]+/).filter(Boolean).map(normC))];
+  const allCodes = () => [...new Set([...picked(), ...typedList().filter(c => CK[c] && CK[c].ok)])];
+  // each code in use (ticked + valid pasted ones) joins one plan: the number of times is at least the number of codes
+  const fromCodes = () => allCodes().length;
   const qtyNow = () => Math.min(room, Math.max(1, Math.floor(+qi.value || 1), fromCodes()));
   const syncQty = () => { const k = picked().length; if (all) { all.checked = k === boxes.length; all.indeterminate = k > 0 && k < boxes.length; }
     if (fromCodes() > room) toast('You can join at most ' + room + ' times at once, so at most ' + room + ' codes can be used in one go. Untick some and use them in another join.', 1, 7000);
@@ -84,18 +90,34 @@ window.join = async id => {
   M.querySelectorAll('[data-q]').forEach(b => b.onclick = () => { qi.value = Math.min(room, Math.max(1, fromCodes(), (Math.floor(+qi.value) || 1) + +b.dataset.q)); paint(); });
   qi.oninput = paint; qi.onblur = () => { qi.value = Math.min(room, Math.max(1, fromCodes(), Math.floor(+qi.value || 1))); paint(); };
   if (pre && all) { all.checked = true; all.onchange(); } else paint();
-  // live check of the code as it is typed
-  const ci = M.querySelector('[name="code"]'), cst = $('#cst'); let ct;
-  ci.oninput = () => {
-    clearTimeout(ct); const v = ci.value.trim();
-    if (!v) { typed.code = ''; typed.count = 0; paint(); cst.className = 'text-xs text-slate-500 -mt-1'; cst.textContent = 'Have a plan code from one of your plans, or one shared with you? Enter it here. A code works once.'; return; }
-    ct = setTimeout(async () => {
-      try { const r = await pb.send('/api/jjhhf/code/check', { method: 'POST', body: { code: v } }); if (ci.value.trim() !== v) return;
-        typed.code = r.code; typed.count = r.status === 'valid' ? (r.count || 1) : 0;
-        cst.className = 'text-xs -mt-1 font-medium ' + (r.status === 'valid' ? 'text-emerald-800' : 'text-red-600'); cst.textContent = r.message + (r.plan && r.status === 'valid' ? ' (from a ' + r.plan + ' plan)' : ''); paint(); }
-      catch (x) { typed.count = 0; cst.className = 'text-xs -mt-1 text-red-600'; cst.textContent = x.message; paint(); }
-    }, 400);
+  // live check of the pasted codes
+  const ci = M.querySelector('#jcodes'), cst = $('#cst'); let ct;
+  const showCodes = () => {
+    const l = typedList();
+    if (!l.length) { cst.className = 'text-xs text-slate-500 -mt-1'; cst.textContent = 'Copied several codes at once? Paste them all here in one go. Each code joins one plan and works once.'; return; }
+    const wait = l.filter(c => !CK[c]), bad = l.filter(c => CK[c] && !CK[c].ok), ok = l.filter(c => CK[c] && CK[c].ok);
+    if (wait.length) { cst.className = 'text-xs text-slate-500 -mt-1'; cst.textContent = 'Checking ' + l.length + ' code' + (l.length === 1 ? '' : 's') + '…'; return; }
+    cst.className = 'text-xs -mt-1 font-medium ' + (bad.length ? 'text-red-600' : 'text-emerald-800');
+    cst.innerHTML = (ok.length ? '<span class="text-emerald-800">✓ ' + ok.length + ' code' + (ok.length === 1 ? '' : 's') + ' ready to use.</span> ' : '') + bad.map(c => esc(c) + ': ' + esc(CK[c].msg)).join('<br>');
   };
+  const checkCodes = () => {
+    clearTimeout(ct); showCodes(); paint();
+    ct = setTimeout(async () => {
+      const need = typedList().filter(c => !CK[c]).slice(0, MAX_SLOTS);
+      await Promise.all(need.map(c => pb.send('/api/jjhhf/code/check', { method: 'POST', body: { code: c } })
+        .then(r => { CK[c] = r.status === 'valid' ? { ok: true } : { ok: false, msg: r.message }; })
+        .catch(x => { CK[c] = { ok: false, msg: x.message }; })));
+      if (typedList().length > MAX_SLOTS) toast('At most ' + MAX_SLOTS + ' codes can be used in one join.', 1, 6000);
+      showCodes(); paint();
+    }, 350);
+  };
+  ci.oninput = checkCodes;
+  $('#jpaste').onclick = async () => {
+    try { const t = await navigator.clipboard.readText(); if (!t.trim()) return toast('Nothing to paste: copy your codes first.', 1);
+      ci.value = (ci.value.trim() ? ci.value.trim() + '\n' : '') + t.trim(); checkCodes(); }
+    catch (_) { ci.focus(); toast('Press and hold in the box (or Ctrl+V) to paste your codes.', 0, 5000); }
+  };
+
 };
 
 // Requesting a payout. Three things are checked first (the server enforces them as well):

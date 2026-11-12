@@ -110,6 +110,9 @@ plan and its payout requests are shown and marked paid together.
 - **Copy several plan codes**: members get "Copy all my usable codes" on My contributions, plus tick boxes, Copy selected and
   Copy all on each group card; admins get "Copy usable codes" on a member's page and tick boxes, Copy selected and
   "Copy all … in this list" (all pages, follows the filter and search) on Plan codes. Codes are copied one per line.
+- **Joining with pasted codes**: the member's Join window takes several codes pasted at once (one per line, or separated by
+  spaces/commas; a Paste button reads the clipboard). Each is checked live; each valid code joins one plan and raises
+  "How many times" to match. Codes go to `fee/pay` as `codes: [...]`.
 - **Live updates**: pages update themselves only when nobody is using them; otherwise a "New updates" button appears.
 - **Delete plan** (Plans page: Delete on a row, in the plan panel, or tick several; member page: Delete on a plan card):
   erases the plan(s) and everything linked: member plans (a group card goes as a whole; deleting a plan type removes every
