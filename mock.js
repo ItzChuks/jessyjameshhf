@@ -232,6 +232,9 @@ function createMockPB() {
     if (path.endsWith('/admin/code-status')) {
       if (me.role !== 'admin') throw new Error('Admins only.');
       const r = db.subscriptions.find(x => x.id === b.subscription); if (!r || !r.code) throw new Error('Plan code not found.');
+      if (b.status === 'reopen') { const until = new Date(Date.parse(b.until + 'T00:00:00Z') - 36e5 + 864e5); if (!(until > new Date())) throw new Error('The new last day must be today or later.');
+        Object.assign(r, { code_used_by: '', code_used_name: '', code_used_at: '', code_used_sub: '', code_admin: '', code_admin_at: '', code_until: until.toISOString().replace('T', ' ') });
+        if (!(parseTs(r.code_from) <= new Date())) r.code_from = now(); emit('subscriptions', 'update', r); save(); return { ok: true, code: r.code, status: 'open' }; }
       if (r.code_used_at) throw new Error('This code was used by ' + (r.code_used_name || 'a member') + ', so its status cannot be changed.');
       if (b.status === 'open') { r.code_from = now(); emit('subscriptions', 'update', r); save(); return { ok: true }; }
       r.code_admin = b.status === 'auto' ? '' : b.status; r.code_admin_at = b.status === 'auto' ? '' : now(); emit('subscriptions', 'update', r); save(); return { ok: true };

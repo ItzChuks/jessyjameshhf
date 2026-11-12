@@ -209,9 +209,24 @@ routerAdd("GET", "/api/jjhhf/code/referred", (e) => {
 routerAdd("POST", "/api/jjhhf/admin/code-status", (e) => {
   if (e.auth.getString("role") !== "admin") throw new ForbiddenError("Admins only.");
   const b = e.requestInfo().body || {}, st = String(b.status || "");
-  if (!["used", "expired", "auto", "open"].includes(st)) throw new BadRequestError("Choose open, used, expired or restore.");
+  if (!["used", "expired", "auto", "open", "reopen"].includes(st)) throw new BadRequestError("Choose open, used, expired, restore or reopen.");
   let rec; try { rec = $app.findRecordById("subscriptions", String(b.subscription || "")); } catch (_) { throw new BadRequestError("Plan code not found."); }
   if (!rec.getString("code")) throw new BadRequestError("This membership has no plan code.");
+  // reopen: a used or expired code becomes usable again, open from now until the end of b.until ("YYYY-MM-DD", Lagos).
+  // If a member used it, their plan keeps running (it still shows "joined with" this code); the code just works once more.
+  if (st === "reopen") {
+    const m = String(b.until || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) throw new BadRequestError("Choose the code's new last day.");
+    const until = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]) - 36e5 + 864e5), now = new Date();   // first moment after the last day
+    if (!(until > now)) throw new BadRequestError("The new last day must be today or later.");
+    const was = rec.getString("code_used_name");
+    for (const f of ["code_used_by", "code_used_name", "code_used_at", "code_used_sub", "code_admin", "code_admin_at"]) rec.set(f, "");
+    if (!(new Date(String(rec.getString("code_from")).replace(" ", "T")) <= now)) rec.set("code_from", now.toISOString().replace("T", " "));
+    rec.set("code_until", until.toISOString().replace("T", " "));
+    $app.save(rec);
+    console.log("jjhhf: admin", e.auth.id, "reopened plan code", rec.getString("code"), was ? "(was used by " + was + ")" : "");
+    return e.json(200, { ok: true, code: rec.getString("code"), status: "open", was_used_by: was });
+  }
   if (rec.getString("code_used_at")) throw new BadRequestError("This code was used by " + (rec.getString("code_used_name") || "a member") + ", so its status cannot be changed.");
   if (st === "open") {
     const now = new Date(), until = new Date(String(rec.getString("code_until")).replace(" ", "T"));

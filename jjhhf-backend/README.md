@@ -113,6 +113,9 @@ plan and its payout requests are shown and marked paid together.
 - **Joining with pasted codes**: the member's Join window takes several codes pasted at once (one per line, or separated by
   spaces/commas; a Paste button reads the clipboard). Each is checked live; each valid code joins one plan and raises
   "How many times" to match. Codes go to `fee/pay` as `codes: [...]`.
+- **Reopen a plan code** (Plan codes page, code page, member page): a used or expired code (also one marked used/expired by
+  admin) becomes usable again from now until the chosen last day, once more. If a member used it, their plan keeps running.
+  Route: `POST /api/jjhhf/admin/code-status` with `status: "reopen", until: "YYYY-MM-DD"`.
 - **Live updates**: pages update themselves only when nobody is using them; otherwise a "New updates" button appears.
 - **Delete plan** (Plans page: Delete on a row, in the plan panel, or tick several; member page: Delete on a plan card):
   erases the plan(s) and everything linked: member plans (a group card goes as a whole; deleting a plan type removes every
