@@ -86,7 +86,7 @@ always joins one plan. Payout, Edit, Complete and Cancel act on the whole group;
 plan and its payout requests are shown and marked paid together.
 
 ## Admin tools added
-- **Add existing plans** (member page): for members who were saving manually. One row per plan (add as many rows as needed, and
+- **Add existing plans** (member page): for members who were saving manually. One row per plan (add as many rows as needed; pick the day it started from a calendar; and
   "How many times" for the same plan held several times): how long it has been running and the amount already paid. All rows are
   saved together or not at all; "Take the amount already paid from the wallet" (ticked by default) deducts what was paid,
   "Take the joining fee" deducts ₦3,000 per plan (all or nothing; untick to only record money received outside the website); "Give each plan a plan code" lets you choose the day the codes open and the day they expire
