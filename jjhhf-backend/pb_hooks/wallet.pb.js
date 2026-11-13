@@ -211,7 +211,7 @@ routerAdd("GET", "/api/jjhhf/code/referred", (e) => {
 routerAdd("POST", "/api/jjhhf/admin/code-status", (e) => {
   if (e.auth.getString("role") !== "admin") throw new ForbiddenError("Admins only.");
   const b = e.requestInfo().body || {}, st = String(b.status || "");
-  if (!["used", "expired", "auto", "open", "reopen"].includes(st)) throw new BadRequestError("Choose open, used, expired, restore or reopen.");
+  if (!["used", "expired", "auto", "open", "reopen", "relink"].includes(st)) throw new BadRequestError("Choose open, used, expired, restore, reopen or relink.");
   const CODE_FIELDS = ["code_from", "code_until", "code_admin", "code_admin_at", "code_used_by", "code_used_name", "code_used_at", "code_used_sub"];
   const snap = rec => { const o = { id: rec.id, code: rec.getString("code") }; CODE_FIELDS.forEach(f => o[f] = rec.getString(f)); return o; };
   const iso = d => d.toISOString().replace("T", " ");
@@ -225,7 +225,15 @@ routerAdd("POST", "/api/jjhhf/admin/code-status", (e) => {
     const no = msg => { if (alone) throw new BadRequestError(msg); return null; };
     if (!rec.getString("code")) return no("This membership has no plan code.");
     const now = new Date(), before = snap(rec);
-    if (st === "reopen") {
+    if (st === "relink") {
+      // used, then reopened by mistake: link the code back to the plan that joined with it (the latest one if several) and mark it used
+      const joined = app.findRecordsByFilter("subscriptions", "joined_code = {:c} && id != {:id}", "-created", 1, 0, { c: rec.getString("code"), id: rec.id });
+      if (!joined.length) return no("No plan was joined with " + rec.getString("code") + ", so there is nothing to link it to.");
+      const j = joined[0]; let who = "a member"; try { const u = app.findRecordById("users", j.getString("user")); who = u.getString("name") || u.getString("email"); } catch (_) { }
+      if (rec.getString("code_used_sub") === j.id) return no(rec.getString("code") + " is already linked to that plan.");
+      rec.set("code_used_by", j.getString("user")); rec.set("code_used_name", who); rec.set("code_used_at", j.getString("created")); rec.set("code_used_sub", j.id);
+      rec.set("code_admin", ""); rec.set("code_admin_at", "");
+    } else if (st === "reopen") {
       for (const f of ["code_used_by", "code_used_name", "code_used_at", "code_used_sub", "code_admin", "code_admin_at"]) rec.set(f, "");
       if (!(new Date(String(rec.getString("code_from")).replace(" ", "T")) <= now)) rec.set("code_from", iso(now));
       rec.set("code_until", iso(until));
@@ -265,6 +273,19 @@ routerAdd("POST", "/api/jjhhf/admin/code-status", (e) => {
   let rec; try { rec = $app.findRecordById("subscriptions", String(b.subscription || "")); } catch (_) { throw new BadRequestError("Plan code not found."); }
   const c = apply($app, rec, true);
   return e.json(200, { ok: true, code: rec.getString("code"), status: st === "reopen" ? "open" : st, was_used_by: c.before.code_used_name, before: [c.before], after: [c.after] });
+}, $apis.requireAuth());
+
+// Codes that a plan was joined with but that are no longer marked as used (for example reopened by mistake): candidates for "relink".
+// GET -> [{ id, code, owner, owner_name, joined: { id, user, name, plan, at } }] (the latest plan joined with each code)
+routerAdd("GET", "/api/jjhhf/admin/code-relink", (e) => {
+  if (e.auth.getString("role") !== "admin") throw new ForbiddenError("Admins only.");
+  const rows = arrayOf(new DynamicModel({ cid: "", code: "", owner: "", jid: "", juser: "", jplan: "", jat: "" }));
+  $app.db().newQuery("SELECT c.id AS cid, c.code AS code, c.user AS owner, j.id AS jid, j.user AS juser, j.plan AS jplan, j.created AS jat FROM {{subscriptions}} c JOIN {{subscriptions}} j ON j.joined_code = c.code AND j.id != c.id WHERE c.code != '' AND c.code_used_at = '' ORDER BY j.created DESC LIMIT 5000").all(rows);
+  const seen = {}, out = [], name = id => { try { const u = $app.findRecordById("users", id); return u.getString("name") || u.getString("email"); } catch (_) { return ""; } };
+  const plan = id => { try { return $app.findRecordById("plans", id).getString("name"); } catch (_) { return ""; } };
+  rows.forEach(r => { if (seen[r.cid]) return; seen[r.cid] = 1;
+    out.push({ id: r.cid, code: r.code, owner: r.owner, owner_name: name(r.owner), joined: { id: r.jid, user: r.juser, name: name(r.juser), plan: plan(r.jplan), at: r.jat } }); });
+  return e.json(200, out);
 }, $apis.requireAuth());
 
 // Undo / redo of plan code changes: puts saved code fields back (only the plan code fields above can be written).

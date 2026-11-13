@@ -122,6 +122,10 @@ plan and its payout requests are shown and marked paid together.
   both, "Reopen all" asks which set to reopen. A member's page has "Reopen used / expired codes" for their own codes only.
 - **Several plan codes at once** (Plan codes page): tick codes, then Open now / Mark used / Mark expired / Restore / Reopen
   selected. Codes an action does not apply to (e.g. already used by a member) are skipped and counted.
+- **Fix codes reopened by mistake**: a plan joined with a code keeps "joined with CODE" even after the code is reopened.
+  Plan codes shows "Fix reopened codes (N)" when such codes exist: tick them (Select all) and each is marked as used again and
+  linked to the plan that joined with it (member name, plan and date under "Used by"). Ticked codes on the page can also use
+  "Link to joining plan". Undoable. Routes: `GET /api/jjhhf/admin/code-relink` (the list), `code-status` with `status: "relink"`.
 - **Undo / redo** (arrows in the admin top bar, or Ctrl+Z / Ctrl+Shift+Z): plan code changes (one or many, including reopen),
   complete / cancel a plan, wallet credit and deduct (undone with an opposite entry the member sees as a correction), suspend /
   restore, make admin / user. The history is kept in the open browser tab (lost on reload, last 50 actions). Deleting, importing,
