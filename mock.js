@@ -229,8 +229,18 @@ function createMockPB() {
       if (b.refund) Object.keys(net).forEach(u => { post(u, net[u], 'refund', 'Refund · plan deleted by the foundation'); out.refunded += net[u]; });
       save(); return out;
     }
+    if (path.endsWith('/admin/code-restore')) {   // demo: undo / redo of plan code changes
+      if (me.role !== 'admin') throw new Error('Admins only.'); const F = ['code_from', 'code_until', 'code_admin', 'code_admin_at', 'code_used_by', 'code_used_name', 'code_used_at', 'code_used_sub'];
+      (b.items || []).forEach(it => { const r = db.subscriptions.find(x => x.id === it.id); if (!r) return; F.forEach(f => { if (it[f] !== undefined) r[f] = it[f]; }); emit('subscriptions', 'update', r); }); save(); return { ok: true };
+    }
     if (path.endsWith('/admin/code-status')) {
       if (me.role !== 'admin') throw new Error('Admins only.');
+      const snapM = r => ({ id: r.id, code: r.code, code_from: r.code_from || '', code_until: r.code_until || '', code_admin: r.code_admin || '', code_admin_at: r.code_admin_at || '', code_used_by: r.code_used_by || '', code_used_name: r.code_used_name || '', code_used_at: r.code_used_at || '', code_used_sub: r.code_used_sub || '' });
+      if (Array.isArray(b.subscriptions) && b.status !== 'reopen') { const before = [], after = []; let skipped = 0;
+        b.subscriptions.forEach(id => { const r = db.subscriptions.find(x => x.id === id); if (!r || !r.code || r.code_used_at) { skipped++; return; } const s0 = snapM(r);
+          if (b.status === 'auto') { if (!r.code_admin) { skipped++; return; } r.code_admin = ''; r.code_admin_at = ''; } else if (b.status === 'open') { if (r.code_admin || parseTs(r.code_from) <= new Date()) { skipped++; return; } r.code_from = now(); } else { r.code_admin = b.status; r.code_admin_at = now(); }
+          before.push(s0); after.push(snapM(r)); emit('subscriptions', 'update', r); });
+        save(); return { ok: true, changed: before.length, skipped, before, after }; }
       if (Array.isArray(b.subscriptions)) { const until = new Date(Date.parse(b.until + 'T00:00:00Z') - 36e5 + 864e5); if (!(until > new Date())) throw new Error('The new last day must be today or later.'); let n = 0;
         b.subscriptions.forEach(id => { const r = db.subscriptions.find(x => x.id === id); if (!r || !r.code) return; Object.assign(r, { code_used_by: '', code_used_name: '', code_used_at: '', code_used_sub: '', code_admin: '', code_admin_at: '', code_until: until.toISOString().replace('T', ' ') }); if (!(parseTs(r.code_from) <= new Date())) r.code_from = now(); emit('subscriptions', 'update', r); n++; });
         save(); return { ok: true, reopened: n }; }

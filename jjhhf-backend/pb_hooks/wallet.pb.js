@@ -206,58 +206,81 @@ routerAdd("GET", "/api/jjhhf/code/referred", (e) => {
 // 9) Admin: change a plan code's status. status: "used" | "expired" (marked by the foundation) | "auto" (restore: back to its normal dates)
 //    | "open" (a code that is not open yet becomes usable now; its last day stays the same).
 //    A code that a member actually used cannot be changed.
+// Plan code fields an admin action can change; every change returns a snapshot of them before and after, so the admin
+// dashboard can undo / redo it (POST /api/jjhhf/admin/code-restore puts a snapshot back).
 routerAdd("POST", "/api/jjhhf/admin/code-status", (e) => {
   if (e.auth.getString("role") !== "admin") throw new ForbiddenError("Admins only.");
   const b = e.requestInfo().body || {}, st = String(b.status || "");
   if (!["used", "expired", "auto", "open", "reopen"].includes(st)) throw new BadRequestError("Choose open, used, expired, restore or reopen.");
-  const untilOf = () => { const m = String(b.until || "").match(/^(\d{4})-(\d{2})-(\d{2})$/); if (!m) throw new BadRequestError("Choose the code's new last day.");
-    const u = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]) - 36e5 + 864e5); if (!(u > new Date())) throw new BadRequestError("The new last day must be today or later."); return u; };
-  const reopen = (app, rec, until) => {
-    const now = new Date(), was = rec.getString("code_used_name");
-    for (const f of ["code_used_by", "code_used_name", "code_used_at", "code_used_sub", "code_admin", "code_admin_at"]) rec.set(f, "");
-    if (!(new Date(String(rec.getString("code_from")).replace(" ", "T")) <= now)) rec.set("code_from", now.toISOString().replace("T", " "));
-    rec.set("code_until", until.toISOString().replace("T", " "));
+  const CODE_FIELDS = ["code_from", "code_until", "code_admin", "code_admin_at", "code_used_by", "code_used_name", "code_used_at", "code_used_sub"];
+  const snap = rec => { const o = { id: rec.id, code: rec.getString("code") }; CODE_FIELDS.forEach(f => o[f] = rec.getString(f)); return o; };
+  const iso = d => d.toISOString().replace("T", " ");
+  let until = null;
+  if (st === "reopen") {
+    const m = String(b.until || "").match(/^(\d{4})-(\d{2})-(\d{2})$/); if (!m) throw new BadRequestError("Choose the code's new last day.");
+    until = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]) - 36e5 + 864e5); if (!(until > new Date())) throw new BadRequestError("The new last day must be today or later.");
+  }
+  // one change; returns null when it does not apply to this code (it is then skipped in a bulk change, an error when alone)
+  const apply = (app, rec, alone) => {
+    const no = msg => { if (alone) throw new BadRequestError(msg); return null; };
+    if (!rec.getString("code")) return no("This membership has no plan code.");
+    const now = new Date(), before = snap(rec);
+    if (st === "reopen") {
+      for (const f of ["code_used_by", "code_used_name", "code_used_at", "code_used_sub", "code_admin", "code_admin_at"]) rec.set(f, "");
+      if (!(new Date(String(rec.getString("code_from")).replace(" ", "T")) <= now)) rec.set("code_from", iso(now));
+      rec.set("code_until", iso(until));
+    } else {
+      if (rec.getString("code_used_at")) return no("This code was used by " + (rec.getString("code_used_name") || "a member") + ", so its status cannot be changed (use Reopen).");
+      if (st === "open") {
+        if (rec.getString("code_admin")) return no("Restore the code first.");
+        if (!(new Date(String(rec.getString("code_until")).replace(" ", "T")) > now)) return no("This code has already expired, so it cannot be opened (use Reopen).");
+        if (new Date(String(rec.getString("code_from")).replace(" ", "T")) <= now) return no("This code is already open.");
+        rec.set("code_from", iso(now));
+      } else if (st === "auto") {
+        if (!rec.getString("code_admin")) return no("This code was not marked by an admin.");
+        rec.set("code_admin", ""); rec.set("code_admin_at", "");
+      } else {
+        if (rec.getString("code_admin") === st) return no("This code is already marked as " + st + ".");
+        rec.set("code_admin", st); rec.set("code_admin_at", iso(now));
+      }
+    }
     app.save(rec);
-    console.log("jjhhf: admin", e.auth.id, "reopened plan code", rec.getString("code"), was ? "(was used by " + was + ")" : "");
-    return was;
+    return { before, after: snap(rec) };
   };
-  // several at once: { subscriptions: [ids], status: "reopen", until } (all or nothing)
+  // several at once: { subscriptions: [ids], status, until } in one go; codes it does not apply to are skipped
   if (Array.isArray(b.subscriptions)) {
-    if (st !== "reopen") throw new BadRequestError("Only reopening works on several codes at once.");
     const ids = [...new Set(b.subscriptions.map(String).filter(Boolean))];
-    if (!ids.length) throw new BadRequestError("Select the codes to reopen.");
-    if (ids.length > 1000) throw new BadRequestError("Reopen at most 1000 codes at once.");
-    const until = untilOf(); let n = 0, wasUsed = 0;
+    if (!ids.length) throw new BadRequestError("Select the codes first.");
+    if (ids.length > 1000) throw new BadRequestError("Change at most 1000 codes at once.");
+    const changes = []; let skipped = 0, wasUsed = 0;
     $app.runInTransaction((tx) => ids.forEach(id => {
-      let rec; try { rec = tx.findRecordById("subscriptions", id); } catch (_) { return; }
-      if (!rec.getString("code")) return;
-      if (reopen(tx, rec, until)) wasUsed++;
-      n++;
+      let rec; try { rec = tx.findRecordById("subscriptions", id); } catch (_) { skipped++; return; }
+      const c = apply(tx, rec, false); if (!c) { skipped++; return; }
+      if (c.before.code_used_at) wasUsed++;
+      changes.push(c);
     }));
-    return e.json(200, { ok: true, reopened: n, was_used: wasUsed });
+    console.log("jjhhf: admin", e.auth.id, "set", changes.length, "plan codes to", st, skipped ? "(" + skipped + " skipped)" : "");
+    return e.json(200, { ok: true, changed: changes.length, reopened: st === "reopen" ? changes.length : 0, skipped, was_used: wasUsed, before: changes.map(c => c.before), after: changes.map(c => c.after) });
   }
   let rec; try { rec = $app.findRecordById("subscriptions", String(b.subscription || "")); } catch (_) { throw new BadRequestError("Plan code not found."); }
-  if (!rec.getString("code")) throw new BadRequestError("This membership has no plan code.");
-  // reopen: a used or expired code becomes usable again, open from now until the end of b.until ("YYYY-MM-DD", Lagos).
-  // If a member used it, their plan keeps running (it still shows "joined with" this code); the code just works once more.
-  if (st === "reopen") {
-    const was = reopen($app, rec, untilOf());
-    return e.json(200, { ok: true, code: rec.getString("code"), status: "open", was_used_by: was });
-  }
+  const c = apply($app, rec, true);
+  return e.json(200, { ok: true, code: rec.getString("code"), status: st === "reopen" ? "open" : st, was_used_by: c.before.code_used_name, before: [c.before], after: [c.after] });
+}, $apis.requireAuth());
 
-  if (rec.getString("code_used_at")) throw new BadRequestError("This code was used by " + (rec.getString("code_used_name") || "a member") + ", so its status cannot be changed.");
-  if (st === "open") {
-    const now = new Date(), until = new Date(String(rec.getString("code_until")).replace(" ", "T"));
-    if (rec.getString("code_admin")) throw new BadRequestError("Restore the code first.");
-    if (!(until > now)) throw new BadRequestError("This code has already expired, so it cannot be opened.");
-    rec.set("code_from", now.toISOString().replace("T", " "));
-    $app.save(rec);
-    return e.json(200, { ok: true, code: rec.getString("code"), status: "open" });
-  }
-  rec.set("code_admin", st === "auto" ? "" : st);
-  rec.set("code_admin_at", st === "auto" ? "" : new Date().toISOString().replace("T", " "));
-  $app.save(rec);
-  return e.json(200, { ok: true, code: rec.getString("code"), status: st });
+// Undo / redo of plan code changes: puts saved code fields back (only the plan code fields above can be written).
+routerAdd("POST", "/api/jjhhf/admin/code-restore", (e) => {
+  if (e.auth.getString("role") !== "admin") throw new ForbiddenError("Admins only.");
+  const F = ["code_from", "code_until", "code_admin", "code_admin_at", "code_used_by", "code_used_name", "code_used_at", "code_used_sub"];
+  const items = Array.isArray((e.requestInfo().body || {}).items) ? e.requestInfo().body.items : [];
+  if (!items.length || items.length > 1000) throw new BadRequestError("Nothing to restore.");
+  let n = 0;
+  $app.runInTransaction((tx) => items.forEach(it => {
+    let rec; try { rec = tx.findRecordById("subscriptions", String(it.id || "")); } catch (_) { return; }
+    if (it.code && rec.getString("code") !== it.code) return;
+    F.forEach(f => { if (it[f] !== undefined) rec.set(f, String(it[f] || "")); });
+    tx.save(rec); n++;
+  }));
+  return e.json(200, { ok: true, restored: n });
 }, $apis.requireAuth());
 
 // 10) Admin: set a member's payment provider by hand, or "" for Automatic (a balanced random draw, see gateways.js).

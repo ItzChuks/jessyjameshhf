@@ -345,7 +345,7 @@ function groupCodes(members) {
   if (L.length === 1) return codePanel(L[0]);
   const open = L.filter(m => codeStatus(m) === 'open').length;
   return `<details data-ccbox class="mt-4 rounded-lg border ${open ? 'bg-emerald-50 border-emerald-200' : 'bg-slate-50'} p-3"><summary class="cursor-pointer text-sm"><span class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Plan codes</span> <span class="text-slate-700">${L.length} codes, one per plan${open ? ` · <b class="text-emerald-800">${open} usable now</b>` : ''}</span></summary>
-    ${open > 1 ? `<div class="flex flex-wrap items-center gap-2 mt-2 text-xs"><label class="inline-flex items-center gap-1.5 cursor-pointer"><input type="checkbox" onchange="tickAll(this,this.checked)" class="w-4 h-4 rounded accent-emerald-700">Select all</label><button type="button" onclick="copyTicked(this)" class="${btn2} !py-1 !px-2.5 text-xs">Copy selected</button><button type="button" onclick="copyAllIn(this)" class="${btn2} !py-1 !px-2.5 text-xs">Copy all ${open} usable</button></div>` : ''}
+    ${open > 1 ? `<div class="flex flex-wrap items-center gap-2 mt-2 text-xs"><label class="inline-flex items-center gap-1.5 cursor-pointer"><input type="checkbox" data-ccall onchange="tickAll(this,this.checked)" class="w-4 h-4 rounded accent-emerald-700">Select all</label><span data-ccn style="color:#64748b">None selected</span><button type="button" onclick="copyTicked(this)" class="${btn2} !py-1 !px-2.5 text-xs">Copy selected</button><button type="button" onclick="copyAllIn(this)" class="${btn2} !py-1 !px-2.5 text-xs">Copy all ${open} usable</button></div>` : ''}
     <div class="mt-2 max-h-56 overflow-y-auto divide-y border rounded-lg bg-white">${L.map(m => `<div class="flex flex-wrap items-center gap-2 px-3 py-1.5">${open > 1 && codeStatus(m) === 'open' ? `<input type="checkbox" data-cc="${esc(m.code)}" aria-label="Select ${esc(m.code)}" class="w-4 h-4 rounded accent-emerald-700">` : ''}<span class="font-mono text-sm font-semibold tracking-wider ${codeStatus(m) === 'open' ? 'text-slate-900' : 'text-slate-400'}">${esc(m.code)}</span>${codeBadge(m)}${codeStatus(m) === 'open' ? `<button type="button" onclick="copyCode('${esc(m.code)}')" class="ml-auto ${btn2} !py-0.5 !px-2 text-xs">Copy</button>` : m.code_used_at ? `<span class="ml-auto text-xs text-slate-500">by ${esc(m.code_used_name || 'a member')}</span>` : ''}${m.code_used_sub ? `<span class="w-full" data-ref="${esc(m.code_used_sub)}"></span>` : ''}</div>`).join('')}</div>
     <p class="text-xs text-slate-500 mt-1.5">Each code works once and joins one plan. ${L[0] && codeStatus(L[0]) === 'soon' ? 'They open on ' + fmtDay(parseTs(L[0].code_from)) + '.' : 'Usable until the end of ' + lastDay(L[0]) + '.'}</p></details>`;
 }
@@ -386,7 +386,17 @@ window.copyCodes = list => { list = [...new Set((list || []).filter(Boolean))]; 
 // tick boxes: <input type="checkbox" data-cc="CODE"> inside a box marked data-ccbox; these copy the ticked ones / all of them
 window.copyTicked = el => copyCodes([...el.closest('[data-ccbox]').querySelectorAll('[data-cc]:checked')].map(b => b.dataset.cc));
 window.copyAllIn = el => copyCodes([...el.closest('[data-ccbox]').querySelectorAll('[data-cc]')].map(b => b.dataset.cc));
-window.tickAll = (el, on) => el.closest('[data-ccbox]').querySelectorAll('[data-cc]').forEach(b => { b.checked = on; });
+window.tickAll = (el, on) => { el.closest('[data-ccbox]').querySelectorAll('[data-cc]').forEach(b => { b.checked = on; }); ccCount(el.closest('[data-ccbox]')); };
+// "N selected" counter: any <span data-ccn> inside a data-ccbox shows how many of its codes are ticked (and keeps Select all in step)
+const ccCount = box => { if (!box) return; const all = [...box.querySelectorAll('[data-cc]')], n = all.filter(b => b.checked).length;
+  box.querySelectorAll('[data-ccn]').forEach(el => { el.textContent = n ? n + ' of ' + all.length + ' selected' : 'None selected'; el.style.fontWeight = n ? '600' : ''; el.style.color = n ? '' : '#64748b'; });
+  box.querySelectorAll('[data-ccall]').forEach(el => { el.checked = all.length > 0 && n === all.length; el.indeterminate = n > 0 && n < all.length; }); };
+document.addEventListener('change', e => { if (e.target.matches && e.target.matches('[data-cc]')) ccCount(e.target.closest('[data-ccbox]')); });
+// a table page change or a re-draw replaces the rows: recount (cheap, at most every 150 ms)
+(() => { if (typeof MutationObserver === 'undefined') return; let t = null;
+  const go = () => { t = null; document.querySelectorAll('[data-ccbox]').forEach(b => { if (b.querySelector('[data-ccn]')) ccCount(b); }); };
+  const start = () => new MutationObserver(() => { if (!t) t = setTimeout(go, 150); }).observe(document.body, { childList: true, subtree: true });
+  document.body ? start() : addEventListener('DOMContentLoaded', start); })();
 
 // ===== deposits by bank transfer with a receipt (pb_hooks/transfers.js) =====
 // Online payment partners (Flutterwave, Paystack, Monnify) are paused. The member transfers the amount + the ₦100 charge to the

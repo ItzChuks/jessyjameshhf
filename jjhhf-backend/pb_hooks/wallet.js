@@ -478,9 +478,9 @@ function editGroup(app, sid, changes) {
 function setGroupStatus(app, sid, status) {
   if (!["active", "completed", "cancelled"].includes(status)) throw new BadRequestError("Unknown status.");
   let rec; try { rec = app.findRecordById("subscriptions", String(sid || "")); } catch (_) { throw new BadRequestError("Plan not found."); }
-  const list = groupOf(app, rec);
+  const list = groupOf(app, rec), before = list.map(m => ({ id: m.id, status: m.getString("status") }));
   list.forEach(m => { m.set("status", status); app.save(m); });
-  return { updated: list.length };
+  return { updated: list.length, before };
 }
 
 // ---- admin: wipe a member's activity (used by "Reset account" and "Delete permanently") ----
