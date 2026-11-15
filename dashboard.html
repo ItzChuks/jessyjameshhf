@@ -1,5 +1,5 @@
 <!DOCTYPE html><html lang="en"><head>
-<link rel="preconnect" href="https://jessyjameshhf-production.up.railway.app" crossorigin><link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><link rel="stylesheet" href="tailwind.css?v=20261113c"><script src="theme.js?v=20261113c"></script><script src="https://cdn.jsdelivr.net/npm/pocketbase@0.26.8/dist/pocketbase.umd.js"></script><script src="mock.js?v=20261113c"></script><script src="pdf.js?v=20261113c"></script><script src="app.js?v=20261113c"></script><title>Dashboard – Jessy James Helping Hands Foundation</title></head>
+<link rel="preconnect" href="https://jessyjameshhf-production.up.railway.app" crossorigin><link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><link rel="stylesheet" href="tailwind.css?v=20261115a"><script src="theme.js?v=20261115a"></script><script src="https://cdn.jsdelivr.net/npm/pocketbase@0.26.8/dist/pocketbase.umd.js"></script><script src="mock.js?v=20261115a"></script><script src="pdf.js?v=20261115a"></script><script src="app.js?v=20261115a"></script><title>Dashboard – Jessy James Helping Hands Foundation</title></head>
 <body class="bg-slate-50 text-slate-800"><div id="app"></div>
 <script>
 if (guard()) {
@@ -233,20 +233,27 @@ const startApp = () => layout({ brand: BRAND_SHORT, nav: [['overview', 'Overview
   async profile(m) {
     const u = await pb.collection('users').getOne(U().id), ready = payoutReady(u);
     const sec = (t, d, body) => `<section class="bg-white border rounded-xl p-5 sm:p-6"><h2 class="font-semibold text-slate-900">${t}</h2><p class="text-sm text-slate-500 mt-0.5 mb-4">${d}</p><div class="grid sm:grid-cols-2 gap-3">${body}</div></section>`;
-    m.innerHTML = head('Profile', 'Your details and the account your payouts are sent to. You can change them at any time.')
+    // home address and payout details are locked once saved (pb_hooks/main.pb.js); only the foundation can change them
+    const LK = f => !!String(u[f] || '').trim(), lk = f => LK(f) ? ' readonly aria-readonly="true" style="background:#f1f5f9;cursor:not-allowed" title="Locked: contact customer care to change it"' : '';
+    const anyLk = ['address', 'bank_name', 'bank_account_name', 'bank_account_number'].some(LK), allLk = ['address', 'bank_name', 'bank_account_name', 'bank_account_number'].every(LK);
+    m.innerHTML = head('Profile', 'Your details and the account your payouts are sent to.')
+      + (anyLk ? `<div class="mb-6 rounded-xl border bg-slate-50 p-4 text-sm text-slate-700">🔒 Your ${allLk ? 'home address and payout details are' : 'saved home address / payout details are'} <b>locked</b> to keep your payouts safe. To change them, contact customer care on <a href="${waLink()}" target="_blank" rel="noopener" class="text-emerald-800 underline">WhatsApp</a> or call ${esc(SUPPORT_PHONE)}.</div>` : `<div class="mb-6 rounded-xl border bg-amber-50 border-amber-200 text-amber-900 p-4 text-sm">Check your home address and payout details carefully: <b>once saved they are locked</b> and only the foundation can change them.</div>`)
       + (ready ? '' : `<div class="mb-6 rounded-xl border bg-amber-50 border-amber-200 text-amber-800 p-4 text-sm">Add your <b>payout details</b> below. They are needed before you can request a payout, and the admin uses them to pay you.</div>`)
       + `<form id="pf2" class="space-y-6 max-w-3xl">`
-      + sec('Personal details', 'How we know and reach you.', fld('Full name', 'name', u.name, 'text', 'required') + fld('Phone', 'phone', u.phone, 'tel') + fld('Country', 'country', u.country) + `<label class="block text-sm sm:col-span-2"><span class="text-slate-600">Home address</span><textarea name="address" rows="2" required placeholder="House number, street, area, city" class="${inp} mt-1">${esc(u.address || '')}</textarea></label>`)
+      + sec('Personal details', 'How we know and reach you.', fld('Full name', 'name', u.name, 'text', 'required') + fld('Phone', 'phone', u.phone, 'tel') + fld('Country', 'country', u.country) + `<label class="block text-sm sm:col-span-2"><span class="text-slate-600">Home address</span><textarea name="address" rows="2" required placeholder="House number, street, area, city" class="${inp} mt-1"${lk('address')}>${esc(u.address || '')}</textarea></label>`)
       + sec('Payout details', 'The bank account your payouts are paid into. Use an account in your own name.',
-          fld('Account name', 'bank_account_name', u.bank_account_name || u.name, 'text', 'required placeholder="As it appears on your bank account"')
-          + `<label class="block text-sm"><span class="text-slate-600">Bank name</span><input name="bank_name" list="banks" value="${esc(u.bank_name || '')}" required placeholder="Choose or type your bank" class="${inp} mt-1"><datalist id="banks">${NG_BANKS.map(b => `<option value="${esc(b)}">`).join('')}</datalist></label>`
-          + fld('Account number', 'bank_account_number', u.bank_account_number, 'text', 'required inputmode="numeric" pattern="[0-9]{10}" placeholder="10 digits" title="Your 10-digit account number"'))
+          fld('Account name', 'bank_account_name', u.bank_account_name || u.name, 'text', 'required placeholder="As it appears on your bank account"' + lk('bank_account_name'))
+          + `<label class="block text-sm"><span class="text-slate-600">Bank name</span><input name="bank_name" list="banks" value="${esc(u.bank_name || '')}" required placeholder="Choose or type your bank" class="${inp} mt-1"${lk('bank_name')}><datalist id="banks">${NG_BANKS.map(b => `<option value="${esc(b)}">`).join('')}</datalist></label>`
+          + fld('Account number', 'bank_account_number', u.bank_account_number, 'text', 'required inputmode="numeric" pattern="[0-9]{10}" placeholder="10 digits"' + (LK('bank_account_number') ? lk('bank_account_number') : ' title="Your 10-digit account number"')))
       + `<div class="flex flex-wrap items-center gap-3"><button class="${btn}">Save changes</button><span id="psv" class="text-sm text-slate-500"></span></div></form>`;
     const f = $('#pf2'), an = f.querySelector('[name="bank_account_number"]');
     an.oninput = () => { an.value = an.value.replace(/\D/g, '').slice(0, 10); };
     f.onsubmit = async e => {
-      e.preventDefault(); const b = f.querySelector('button'); b.disabled = true;
-      try { await pb.collection('users').update(u.id, Object.fromEntries(new FormData(f))); await pb.collection('users').authRefresh().catch(() => { }); toast('Profile saved'); $('#psv').textContent = 'Saved ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); refresh(); }
+      e.preventDefault(); const b = f.querySelector('button');
+      const d = Object.fromEntries(new FormData(f)), newly = ['address', 'bank_name', 'bank_account_name', 'bank_account_number'].filter(k => !LK(k) && String(d[k] || '').trim());
+      if (newly.length && !(await confirmBox({ title: 'Lock these details?', message: 'Once saved, your ' + newly.map(k => ({ address: 'home address', bank_name: 'bank name', bank_account_name: 'account name', bank_account_number: 'account number' }[k])).join(', ') + ' cannot be changed by you any more; only the foundation can change ' + (newly.length === 1 ? 'it' : 'them') + '. Please check ' + (newly.length === 1 ? 'it is' : 'they are') + ' correct.', confirmText: 'Save and lock' }))) return;
+      b.disabled = true;
+      try { await pb.collection('users').update(u.id, d); await pb.collection('users').authRefresh().catch(() => { }); toast('Profile saved'); $('#psv').textContent = 'Saved ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); refresh(); }
       catch (x) { toast(Object.values(x.response?.data || {}).map(v => v.message).join(' ') || x.message, 1, 6000); }
       b.disabled = false;
     };

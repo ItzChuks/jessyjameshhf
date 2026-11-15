@@ -54,6 +54,12 @@ onRecordUpdateRequest((e) => {
   if (e.record.getString("bank_account_number") && acct.length !== 10) throw new BadRequestError("Enter your 10-digit account number.");
   e.record.set("bank_account_number", acct);
   for (const f of ["bank_name", "bank_account_name", "address"]) e.record.set(f, e.record.getString(f).trim().slice(0, 300));
+  // home address and payout details: a member fills each one in once; after that only an admin can change it
+  if (!e.auth || e.auth.getString("role") !== "admin") {
+    const L = { address: "home address", bank_name: "bank name", bank_account_name: "account name", bank_account_number: "account number" };
+    for (const f of Object.keys(L)) if (o.getString(f).trim() && e.record.getString(f) !== o.getString(f).trim())
+      throw new BadRequestError("Your " + L[f] + " is locked once saved. Please contact customer care to change it.");
+  }
   e.next();
 }, "users");
 

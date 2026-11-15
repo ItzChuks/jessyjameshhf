@@ -126,6 +126,9 @@ plan and its payout requests are shown and marked paid together.
   Plan codes shows "Fix reopened codes (N)" when such codes exist: tick them (Select all) and each is marked as used again and
   linked to the plan that joined with it (member name, plan and date under "Used by"). Ticked codes on the page can also use
   "Link to joining plan". Undoable. Routes: `GET /api/jjhhf/admin/code-relink` (the list), `code-status` with `status: "relink"`.
+- **Locked address and payout details**: a member fills in their home address, bank name, account name and account number once;
+  after that the server refuses changes from the member (pb_hooks/main.pb.js) and the Profile page shows them locked. Admins
+  change them with "Edit details" on the member's page (undoable). Clearing a field there lets the member fill it in again.
 - **Undo / redo** (arrows in the admin top bar, or Ctrl+Z / Ctrl+Shift+Z): plan code changes (one or many, including reopen),
   complete / cancel a plan, wallet credit and deduct (undone with an opposite entry the member sees as a correction), suspend /
   restore, make admin / user. The history is kept in the open browser tab (lost on reload, last 50 actions). Deleting, importing,
