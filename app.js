@@ -384,14 +384,20 @@ window.copyCode = c => copyText(c).then(() => toast('Code copied: ' + c), () => 
 window.copyCodes = list => { list = [...new Set((list || []).filter(Boolean))]; if (!list.length) return toast('No codes to copy. Tick some first.', 1);
   copyText(list.join('\n')).then(() => toast(list.length + ' code' + (list.length === 1 ? '' : 's') + ' copied.'), () => toast('Could not copy. Your codes: ' + list.join(' '), 1, 12000)); };
 // tick boxes: <input type="checkbox" data-cc="CODE"> inside a box marked data-ccbox; these copy the ticked ones / all of them
-window.copyTicked = el => copyCodes([...el.closest('[data-ccbox]').querySelectorAll('[data-cc]:checked')].map(b => b.dataset.cc));
-window.copyAllIn = el => copyCodes([...el.closest('[data-ccbox]').querySelectorAll('[data-cc]')].map(b => b.dataset.cc));
+// Tables are drawn twice (a table for wide screens, cards for phones), so every code has two tick boxes: count each code once.
+const ccTicked = box => { const m = new Map(); box.querySelectorAll('[data-cc]:checked').forEach(b => { if (!m.has(b.dataset.cc)) m.set(b.dataset.cc, b.dataset.sid || ''); }); return [...m].map(([cc, sid]) => ({ cc, sid })); };
+const ccAllCodes = box => [...new Set([...box.querySelectorAll('[data-cc]')].map(b => b.dataset.cc))];
+window.ccTicked = ccTicked;
+window.copyTicked = el => copyCodes(ccTicked(el.closest('[data-ccbox]')).map(x => x.cc));
+window.copyAllIn = el => copyCodes(ccAllCodes(el.closest('[data-ccbox]')));
 window.tickAll = (el, on) => { el.closest('[data-ccbox]').querySelectorAll('[data-cc]').forEach(b => { b.checked = on; }); ccCount(el.closest('[data-ccbox]')); };
 // "N selected" counter: any <span data-ccn> inside a data-ccbox shows how many of its codes are ticked (and keeps Select all in step)
-const ccCount = box => { if (!box) return; const all = [...box.querySelectorAll('[data-cc]')], n = all.filter(b => b.checked).length;
+const ccCount = box => { if (!box) return; const all = ccAllCodes(box), n = ccTicked(box).length;
   box.querySelectorAll('[data-ccn]').forEach(el => { el.textContent = n ? n + ' of ' + all.length + ' selected' : 'None selected'; el.style.fontWeight = n ? '600' : ''; el.style.color = n ? '' : '#64748b'; });
   box.querySelectorAll('[data-ccall]').forEach(el => { el.checked = all.length > 0 && n === all.length; el.indeterminate = n > 0 && n < all.length; }); };
-document.addEventListener('change', e => { if (e.target.matches && e.target.matches('[data-cc]')) ccCount(e.target.closest('[data-ccbox]')); });
+document.addEventListener('change', e => { if (e.target.matches && e.target.matches('[data-cc]')) { const box = e.target.closest('[data-ccbox]');
+  if (box) box.querySelectorAll('[data-cc]').forEach(b => { if (b !== e.target && b.dataset.cc === e.target.dataset.cc) b.checked = e.target.checked; });   // keep the twin in step
+  ccCount(box); } });
 // a table page change or a re-draw replaces the rows: recount (cheap, at most every 150 ms)
 (() => { if (typeof MutationObserver === 'undefined') return; let t = null;
   const go = () => { t = null; document.querySelectorAll('[data-ccbox]').forEach(b => { if (b.querySelector('[data-ccn]')) ccCount(b); }); };
