@@ -1,5 +1,5 @@
 <!DOCTYPE html><html lang="en"><head>
-<link rel="preconnect" href="https://jessyjameshhf-production.up.railway.app" crossorigin><link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><link rel="stylesheet" href="tailwind.css?v=20261116a"><script src="theme.js?v=20261116a"></script><script src="https://cdn.jsdelivr.net/npm/pocketbase@0.26.8/dist/pocketbase.umd.js"></script><script src="mock.js?v=20261116a"></script><script src="pdf.js?v=20261116a"></script><script src="app.js?v=20261116a"></script><title>Admin – Jessy James Helping Hands Foundation</title></head>
+<link rel="preconnect" href="https://jessyjameshhf-production.up.railway.app" crossorigin><link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><link rel="stylesheet" href="tailwind.css?v=20261116c"><script src="theme.js?v=20261116c"></script><script src="https://cdn.jsdelivr.net/npm/pocketbase@0.26.8/dist/pocketbase.umd.js"></script><script src="mock.js?v=20261116c"></script><script src="pdf.js?v=20261116c"></script><script src="app.js?v=20261116c"></script><title>Admin – Jessy James Helping Hands Foundation</title></head>
 <body class="bg-slate-50 text-slate-800"><div id="app"></div>
 <script>
 if(guard('admin')){
@@ -44,6 +44,18 @@ document.readyState==='loading'?addEventListener('DOMContentLoaded',undoMount):u
 const codeUndo=(label,r)=>{if(!r||!r.before||!r.before.length)return;const B=r.before,A=r.after;
  undoPush(label,()=>pb.send('/api/jjhhf/admin/code-restore',{method:'POST',body:{items:B}}),()=>pb.send('/api/jjhhf/admin/code-restore',{method:'POST',body:{items:A}}))};
 // ===== edit a member's address and payout details (locked for the member once saved; only admins change them) =====
+// ===== forgotten password: give a member a temporary password to send them on WhatsApp =====
+window.resetPw=async id=>{const u=await col('users').getOne(id);
+ if(!(await confirmBox({title:'Give '+(u.name||u.email)+' a temporary password?',message:'Their current password stops working and they are logged out everywhere. They log in with the temporary password and must then choose their own.',confirmText:'Make temporary password'})))return;
+ let r;try{r=await pb.send('/api/jjhhf/admin/reset-password',{method:'POST',body:{user:id}})}catch(e){return toast(e.message,1)}
+ const ph=String(u.phone||'').replace(/\D/g,''),intl=ph.startsWith('234')?ph:ph.startsWith('0')?'234'+ph.slice(1):ph;
+ const msg='Hello '+(u.name||'')+', your temporary password for '+BRAND+' is: '+r.password+'\nLog in at '+location.origin+'/auth.html with your email ('+u.email+') and this password, then choose your own password.';
+ window._tpw={pw:r.password,msg};
+ modal('Temporary password for '+esc(u.name||u.email),'<p class="text-sm text-slate-600">Send this to the member. It is shown only now.</p>'
+  +'<div class="flex items-center gap-2 rounded-lg border bg-emerald-50 border-emerald-200 p-3"><span class="font-mono text-xl font-semibold tracking-wider text-slate-900 flex-1">'+esc(r.password)+'</span><button type="button" onclick="copyCode(window._tpw.pw)" class="'+btn2+'">Copy</button></div>'
+  +'<div class="flex flex-wrap gap-2">'+(intl?'<a href="https://wa.me/'+intl+'?text='+encodeURIComponent(msg)+'" target="_blank" rel="noopener" class="'+btn+'">Send on WhatsApp</a>':'<span class="text-xs text-slate-500">No phone number on the profile; copy the message instead.</span>')+'<button type="button" onclick="copyText(window._tpw.msg).then(()=>toast(\'Message copied\'))" class="'+btn2+'">Copy full message</button></div>'
+  +'<p class="text-xs text-slate-500">They log in with their email and this password; the site then asks them to choose their own password.</p>',async()=>{},'Done');
+ const M=document.querySelector('[data-ui="modal"]');M.querySelector('.c')?.remove()};
 window.editDetails=async id=>{const u=await col('users').getOne(id),F=['name','phone','address','bank_name','bank_account_name','bank_account_number'],old=Object.fromEntries(F.map(f=>[f,u[f]||'']));
  modal('Edit details · '+esc(u.name||u.email),'<p class="text-sm text-slate-600">The member can fill in their home address and payout details once; after that only an admin can change them here.</p>'
   +'<div class="grid grid-cols-2 gap-2">'+fld('Full name','name',u.name,'text','required')+fld('Phone','phone',u.phone,'tel')+'</div>'
@@ -500,7 +512,7 @@ layout({brand:BRAND_SHORT,sub:'Admin panel',search:{placeholder:'Search members 
      ${u.suspended?'<span class="shrink-0 inline-flex px-2 py-0.5 rounded-md text-xs font-medium ring-1 ring-inset bg-red-50 text-red-700 ring-red-200">Suspended</span>':''}</div>
     <div class="flex flex-wrap items-center justify-between gap-3 mt-4 pt-4 border-t">
      <div class="flex flex-wrap gap-1.5">${ab('Credit wallet',call('creditWallet',u.id),'bg-emerald-600 text-white')}${ab('Deduct',call('deductWallet',u.id),'border text-red-600')}${u.role==='admin'?'':ab('Add existing plans',call('importPlan',u.id),'border font-medium')}${regBtn(u)}</div>
-     <div class="flex flex-wrap gap-1.5">${u.role==='admin'?'':u.suspended?ab('Restore account',call('suspendUser',u.id,'0'),'bg-emerald-600 text-white')+ab('Reset account',call('resetUser',u.id),'border text-red-600')+ab('Delete permanently',call('deleteUser',u.id),'bg-red-600 text-white'):ab('Suspend',call('suspendUser',u.id,'1'),'border text-red-600')}${ab(u.role==='admin'?'Make user':'Make admin',call('setRec','users',u.id,'role',u.role==='admin'?'user':'admin'))}</div></div>
+     <div class="flex flex-wrap gap-1.5">${u.role==='admin'?'':u.suspended?ab('Restore account',call('suspendUser',u.id,'0'),'bg-emerald-600 text-white')+ab('Reset account',call('resetUser',u.id),'border text-red-600')+ab('Delete permanently',call('deleteUser',u.id),'bg-red-600 text-white'):ab('Suspend',call('suspendUser',u.id,'1'),'border text-red-600')}${ab('Reset password',call('resetPw',u.id),'border font-medium')+ab(u.role==='admin'?'Make user':'Make admin',call('setRec','users',u.id,'role',u.role==='admin'?'user':'admin'))}</div></div>
     <div class="grid sm:grid-cols-2 sm:gap-x-10 mt-4 border-t">
      <dl class="divide-y">${kv('Phone',u.phone?`<a href="tel:${esc(u.phone)}" class="text-emerald-800 hover:underline">${esc(u.phone)}</a>`:'')}${kv('Country',esc(u.country))}${kv('Email',esc(u.email))}${kv('Address',esc(u.address))}</dl>
      <dl class="divide-y border-t sm:border-t-0">${kv('Role',u.role==='admin'?'Administrator':'Member')}${kv('Registration',u.role==='admin'?'':regBadge(u)+(u.shirt_paid&&u.shirt_paid_at?' <span class="text-xs font-normal text-slate-500">since '+date(u.shirt_paid_at)+'</span>':''))}${kv('Joined',date(u.created))}${kv('Account ID',esc(u.id))}</dl></div></div>

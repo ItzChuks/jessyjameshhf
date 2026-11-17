@@ -1,5 +1,5 @@
 <!DOCTYPE html><html lang="en"><head>
-<link rel="preconnect" href="https://jessyjameshhf-production.up.railway.app" crossorigin><link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="tailwind.css?v=20261116a"><script src="theme.js?v=20261116a"></script><script src="https://cdn.jsdelivr.net/npm/pocketbase@0.26.8/dist/pocketbase.umd.js"></script><script src="mock.js?v=20261116a"></script><script src="app.js?v=20261116a"></script><title>Account – Jessy James Helping Hands Foundation</title></head>
+<link rel="preconnect" href="https://jessyjameshhf-production.up.railway.app" crossorigin><link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="tailwind.css?v=20261116c"><script src="theme.js?v=20261116c"></script><script src="https://cdn.jsdelivr.net/npm/pocketbase@0.26.8/dist/pocketbase.umd.js"></script><script src="mock.js?v=20261116c"></script><script src="app.js?v=20261116c"></script><title>Account – Jessy James Helping Hands Foundation</title></head>
 <body class="min-h-screen bg-slate-50 lg:grid lg:grid-cols-2">
 <aside class="hidden lg:flex flex-col justify-between bg-brand-950 text-white p-12 relative overflow-hidden" style="background-image:radial-gradient(40rem 26rem at 0% 0%,rgba(93,134,247,.28),transparent),radial-gradient(30rem 20rem at 100% 100%,rgba(245,183,42,.18),transparent)">
   <a href="index.html" class="flex items-center gap-3"><img src="logo.png" alt="" class="w-12 h-12 rounded-xl bg-white"><span class="leading-tight"><span class="block font-semibold">Jessy James</span><span class="block text-sm text-brand-200">Helping Hands Foundation</span></span></a>
@@ -277,14 +277,16 @@ const field=(label,name,type,ac,extra='',hint='')=>`<div>${L(label,name)}<input 
 const pwField=(label,name,ac,hint='')=>`<div>${L(label,name)}<div class="relative mt-1"><input id="${name}" name="${name}" type="password" autocomplete="${ac}" required minlength="8" class="${inp} pr-11"><button type="button" data-eye="${name}" aria-label="Show password" class="absolute right-1.5 top-1/2 -translate-y-1/2 p-1.5 rounded-md text-slate-400 hover:text-slate-700">${svg(EYE)}</button></div>${hint?`<p class="text-xs text-slate-500 mt-1">${hint}</p>`:''}</div>`;
 
 const QS=new URLSearchParams(location.search),RESET=QS.get('reset')||'';   // ?reset=<token> comes from the password-reset email
-let mode=RESET?'reset':QS.get('mode')==='register'?'register':QS.get('mode')==='forgot'?'forgot':'login';
+let mode=RESET?'reset':['register','forgot','change'].includes(QS.get('mode'))?QS.get('mode'):'login';
+let resetEmail='',resendAt=0;   // forgotten password by email code: the email the code went to, and when a new code may be asked for
+let tempPw='';   // the temporary password just typed at sign-in (so the member does not have to type it again)
 let sel=C.find(c=>c.i==='NG');   // default country, changeable
 let shown=[],act=-1;
 
 // ---------- page ----------
 function draw(){
- hideOk();$('#tabs').classList.toggle('hidden',mode==='forgot'||mode==='reset');
- if(mode==='forgot'||mode==='reset')return drawPw();
+ hideOk();$('#tabs').classList.toggle('hidden',['forgot','code','reset','change'].includes(mode));
+ if(['forgot','code','reset','change'].includes(mode))return drawPw();
  ['login','register'].forEach(m=>$('#t-'+m).className='py-2 rounded-md transition '+(m===mode?'bg-white shadow text-slate-900':'text-slate-500 hover:text-slate-700'));
  const reg=mode==='register';
  $('#ttl').textContent=reg?'Create your account':'Welcome back';
@@ -322,13 +324,29 @@ function eyes(){
  }
 
 // ---------- forgotten password ----------
+const waHelp=em=>'https://wa.me/'+SUPPORT_WHATSAPP+'?text='+encodeURIComponent('Hello '+BRAND+' support, I forgot my password. Please give me a temporary password.'+(em?'\nMy account email: '+em:''));
 function drawPw(){
- const fg=mode==='forgot';
- $('#ttl').textContent=fg?'Forgot your password?':'Choose a new password';
- $('#sub').textContent=fg?'Enter the email address on your account and we will email you a link to reset your password.':'Enter your new password twice. You will then log in with it.';
- $('#f').innerHTML=(fg?field('Email address','email','email','username','required placeholder="you@example.com"')
-  :pwField('New password','password','new-password','At least 8 characters.')+pwField('Confirm new password','passwordConfirm','new-password'))
-  +`<button id="go" class="${btn} w-full py-2.5 mt-1">${fg?'Send reset link':'Save new password'}</button>`;
+ if(mode==='code'){   // step 2: the code from the email + the new password
+  $('#ttl').textContent='Check your email';
+  $('#sub').innerHTML='We sent a 6-digit code to <b>'+esc(resetEmail)+'</b>. Copy it from the email (look in spam too), paste it below and choose a new password.';
+  $('#f').innerHTML=`<div>${L('Code from the email','code')}<input id="code" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="7" required placeholder="123456" class="${inp} mt-1 text-center font-semibold" style="font-size:1.5rem;letter-spacing:.4em"></div>`
+   +pwField('New password','password','new-password','At least 8 characters.')+pwField('Confirm new password','passwordConfirm','new-password')
+   +`<button id="go" class="${btn} w-full py-2.5 mt-1">Reset password</button>`;
+  $('#alt').innerHTML='<button type="button" id="resend" class="text-emerald-800 font-medium hover:underline">Send a new code</button> · <a href="'+waHelp(resetEmail)+'" target="_blank" rel="noopener" class="text-emerald-800 font-medium hover:underline">No email? Ask on WhatsApp</a><br><button type="button" id="sw" class="text-slate-500 hover:underline mt-2">Back to log in</button>';
+  $('#sw').onclick=()=>{mode='login';draw();$('#email').value=resetEmail};
+  $('#resend').onclick=async()=>{if(Date.now()<resendAt)return showErr('Please wait '+Math.ceil((resendAt-Date.now())/1000)+' seconds before asking for a new code.');
+   try{hideErr();await pb.send('/api/jjhhf/password/code',{method:'POST',body:{email:resetEmail}});resendAt=Date.now()+60e3;showOk('A new code is on its way to <b>'+esc(resetEmail)+'</b>.')}catch(x){showErr(x.response?.message||x.message)}};
+  const c=$('#code');c.oninput=()=>{c.value=c.value.replace(/\D/g,'').slice(0,6)};c.focus();
+  hideErr();eyes();return;
+ }
+ const fg=mode==='forgot',ch=mode==='change';
+ $('#ttl').textContent=fg?'Forgot your password?':ch?'Choose your own password':'Choose a new password';
+ $('#sub').textContent=fg?'Enter the email on your account. We will email you a 6-digit code to choose a new password.':ch?'You logged in with a temporary password. Choose your own password to continue.':'Enter your new password twice. You will then log in with it.';
+ $('#f').innerHTML=(fg?field('Email address on your account','email','email','username','required placeholder="you@example.com"')
+
+  :(ch?(tempPw?'':pwField('Temporary password (from customer care)','current','current-password'))+pwField('New password','password','new-password','At least 8 characters.')+pwField('Confirm new password','passwordConfirm','new-password')
+   :pwField('New password','password','new-password','At least 8 characters.')+pwField('Confirm new password','passwordConfirm','new-password')))
+  +`<button id="go" class="${btn} w-full py-2.5 mt-1">${fg?'Email me a code':ch?'Save and continue':'Save new password'}</button>`+(fg?`<p class="text-xs text-slate-500 text-center">No access to that email? <a id="wahelp" href="${waHelp('')}" target="_blank" rel="noopener" class="text-emerald-800 font-medium underline">Ask customer care on WhatsApp</a> for a temporary password.</p>`:'');
  $('#alt').innerHTML='Remembered it? <button type="button" id="sw" class="text-emerald-800 font-medium hover:underline">Back to log in</button>';
  $('#sw').onclick=()=>{mode='login';if(RESET)history.replaceState(null,'',location.pathname);draw()};
  hideErr();eyes();
@@ -369,7 +387,7 @@ const showErr=m=>{const e=$('#err');e.textContent=m;e.classList.remove('hidden')
 const hideErr=()=>{const e=$('#err');e.textContent='';e.classList.add('hidden')};
 const showOk=m=>{const e=$('#ok');e.innerHTML=m;e.classList.remove('hidden')};
 const hideOk=()=>{const e=$('#ok');e.innerHTML='';e.classList.add('hidden')};
-const LBL={register:'Create account',login:'Log in',forgot:'Send reset link',reset:'Save new password'};
+const LBL={register:'Create account',login:'Log in',forgot:'Email me a code',code:'Reset password',reset:'Save new password',change:'Save and continue'};
 const busy=on=>{const b=$('#go');b.disabled=on;b.classList.toggle('opacity-70',on);b.textContent=on?'Please wait…':LBL[mode]};
 
 // ---------- submit ----------
@@ -379,12 +397,31 @@ $('#f').onsubmit=async e=>{
  e.preventDefault();hideErr();hideOk();
  const d=Object.fromEntries(new FormData(e.target));
  const email=(d.email||'').trim();
- if(mode==='forgot'||mode==='reset'){
+ if(['forgot','code','reset','change'].includes(mode)){
   try{
    if(mode==='forgot'){
     if(!/^\S+@\S+\.\S+$/.test(email))throw new Error('Enter the email address on your account.');
-    busy(true);await pb.collection('users').requestPasswordReset(email);busy(false);
-    showOk('If an account uses <b>'+esc(email)+'</b>, a reset link is on its way. Check your inbox (and spam folder). The link expires in 30 minutes.');
+    busy(true);await pb.send('/api/jjhhf/password/code',{method:'POST',body:{email}});busy(false);
+    resetEmail=email;resendAt=Date.now()+60e3;mode='code';draw();
+    showOk('If <b>'+esc(email)+'</b> has an account, the code is on its way. It works for 15 minutes.');
+   }else if(mode==='code'){
+    const code=String(d.code||'').replace(/\D/g,'');
+    if(code.length!==6)throw new Error('Enter the 6-digit code from the email.');
+    if((d.password||'').length<8)throw new Error('Password must be at least 8 characters.');
+    if(d.password!==d.passwordConfirm)throw new Error('Passwords do not match.');
+    busy(true);await pb.send('/api/jjhhf/password/reset',{method:'POST',body:{email:resetEmail,code,password:d.password,passwordConfirm:d.passwordConfirm}});
+    await pb.collection('users').authWithPassword(resetEmail,d.password);
+    location.href=pb.authStore.record.role==='admin'?'admin.html':'dashboard.html';return;
+   }else if(mode==='change'){
+    const cur=tempPw||d.current||'';
+    if(!cur)throw new Error('Enter the temporary password customer care gave you.');
+    if((d.password||'').length<8)throw new Error('Password must be at least 8 characters.');
+    if(d.password!==d.passwordConfirm)throw new Error('Passwords do not match.');
+    if(!pb.authStore.isValid){mode='login';draw();throw new Error('Please log in again with the temporary password.')}
+    busy(true);const em=pb.authStore.record.email;
+    await pb.send('/api/jjhhf/me/password',{method:'POST',body:{current:cur,password:d.password,passwordConfirm:d.passwordConfirm}});
+    await pb.collection('users').authWithPassword(em,d.password);tempPw='';
+    location.href=pb.authStore.record.role==='admin'?'admin.html':'dashboard.html';return;
    }else{
     if((d.password||'').length<8)throw new Error('Password must be at least 8 characters.');
     if(d.password!==d.passwordConfirm)throw new Error('Passwords do not match.');
@@ -394,6 +431,7 @@ $('#f').onsubmit=async e=>{
    }
   }catch(x){
    busy(false);
+   if((mode==='change'||mode==='code'||mode==='forgot')&&x.status===400){showErr(x.response?.message||x.message);return}
    if(mode==='reset'&&x.status===400&&x.response?.data?.token){showErr('This reset link is invalid, already used or expired.');$('#alt').innerHTML='<button type="button" id="again" class="text-emerald-800 font-medium hover:underline">Send me a new link</button>';$('#again').onclick=()=>{history.replaceState(null,'',location.pathname);mode='forgot';draw()};return}
    const m=Object.values(x.response?.data||{}).map(v=>v.message).join(' ');
    showErr(x.status===0?'Can\u2019t reach the server. Check your internet connection and try again.':x.status===429?'Too many attempts. Wait a few minutes and try again.':mode==='reset'&&x.status===400?(m||'This reset link is invalid or has expired. Ask for a new one.'):(m||x.message));
@@ -415,6 +453,7 @@ $('#f').onsubmit=async e=>{
   }
   busy(true);
   await pb.collection('users').authWithPassword(email,d.password);
+  if(pb.authStore.record.must_change_password){tempPw=d.password;busy(false);mode='change';draw();return}   // signed in with a temporary password
   location.href=pb.authStore.record.role==='admin'?'admin.html':'dashboard.html';
  }catch(x){
   busy(false);

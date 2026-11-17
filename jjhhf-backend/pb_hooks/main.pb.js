@@ -40,7 +40,7 @@ routerUse((e) => {
 onRecordUpdateRequest((e) => {
   if (e.hasSuperuserAuth()) return e.next();
   const o = e.record.original();
-  for (const f of ["suspended", "suspended_reason", "suspended_at"]) if (e.record.get(f) + "" !== o.get(f) + "") throw new BadRequestError("That field cannot be changed.");   // admin route only
+  for (const f of ["suspended", "suspended_reason", "suspended_at", "must_change_password", "reset_code", "reset_until", "reset_tries"]) if (e.record.get(f) + "" !== o.get(f) + "") throw new BadRequestError("That field cannot be changed.");   // admin routes only
   for (const f of ["wallet_balance", "va_number", "va_bank", "va_ref"]) {
     if (f === "wallet_balance" ? e.record.getFloat(f) !== o.getFloat(f) : e.record.getString(f) !== o.getString(f)) throw new BadRequestError("That field cannot be changed.");
   }

@@ -484,9 +484,11 @@ function toast(m, err, ms = 3000) {
 }
 function guard(role) {
   if (!pb.authStore.isValid) { location.href = 'auth.html'; return false; }
+  if (pb.authStore.record.must_change_password) { location.href = 'auth.html?mode=change'; return false; }   // temporary password: choose your own first
   if (role === 'admin' && pb.authStore.record.role !== 'admin') { location.href = 'dashboard.html'; return false; }
   // re-check with the server: picks up role changes and deleted accounts, and renews the token
   pb.collection('users').authRefresh().then(() => {
+    if (pb.authStore.record.must_change_password) { location.href = 'auth.html?mode=change'; return; }
     if (role === 'admin' && pb.authStore.record.role !== 'admin') location.href = 'dashboard.html';
   }).catch(e => { if ([401, 403, 404].includes(e.status)) { pb.authStore.clear(); location.href = 'auth.html'; } });
   return true;

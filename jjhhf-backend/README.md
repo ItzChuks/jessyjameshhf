@@ -126,6 +126,17 @@ plan and its payout requests are shown and marked paid together.
   Plan codes shows "Fix reopened codes (N)" when such codes exist: tick them (Select all) and each is marked as used again and
   linked to the plan that joined with it (member name, plan and date under "Used by"). Ticked codes on the page can also use
   "Link to joining plan". Undoable. Routes: `GET /api/jjhhf/admin/code-relink` (the list), `code-status` with `status: "relink"`.
+- **Forgotten password by email code**: "Forgot password?" → the member enters their email → a 6-digit code is emailed (works
+  15 minutes, 5 tries, a new code after 60 s) → they paste it and choose a new password, and are logged in. No link.
+  Routes: `POST /api/jjhhf/password/code`, `POST /api/jjhhf/password/reset`; hidden fields from migration `1760000020`.
+  Email goes through Brevo (mail.pb.js, `BREVO_API_KEY`), because Railway's Hobby plan blocks SMTP. If email fails, the
+  page points the member to WhatsApp, and the admin can still give a temporary password (below).
+- **Forgotten password (no email needed)**: "Forgot password?" on the log-in page sends the member to customer care on
+  WhatsApp (their email is in the message). The admin opens the member's page, clicks "Reset password" and sends the temporary
+  password shown (Copy / Send on WhatsApp). The member logs in with it and must choose their own password before using the site
+  (`users.must_change_password`, migration `1760000019`). Members can also change their password on Profile.
+  Routes: `POST /api/jjhhf/admin/reset-password`, `POST /api/jjhhf/me/password` (pb_hooks/password_reset.pb.js).
+  The old email reset link (password.pb.js, mail.pb.js) is no longer offered on the site.
 - **Locked address and payout details**: a member fills in their home address, bank name, account name and account number once;
   after that the server refuses changes from the member (pb_hooks/main.pb.js) and the Profile page shows them locked. Admins
   change them with "Edit details" on the member's page (undoable). Clearing a field there lets the member fill it in again.

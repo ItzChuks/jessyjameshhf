@@ -1,5 +1,5 @@
 <!DOCTYPE html><html lang="en"><head>
-<link rel="preconnect" href="https://jessyjameshhf-production.up.railway.app" crossorigin><link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><link rel="stylesheet" href="tailwind.css?v=20261116a"><script src="theme.js?v=20261116a"></script><script src="https://cdn.jsdelivr.net/npm/pocketbase@0.26.8/dist/pocketbase.umd.js"></script><script src="mock.js?v=20261116a"></script><script src="pdf.js?v=20261116a"></script><script src="app.js?v=20261116a"></script><title>Dashboard – Jessy James Helping Hands Foundation</title></head>
+<link rel="preconnect" href="https://jessyjameshhf-production.up.railway.app" crossorigin><link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><link rel="stylesheet" href="tailwind.css?v=20261116c"><script src="theme.js?v=20261116c"></script><script src="https://cdn.jsdelivr.net/npm/pocketbase@0.26.8/dist/pocketbase.umd.js"></script><script src="mock.js?v=20261116c"></script><script src="pdf.js?v=20261116c"></script><script src="app.js?v=20261116c"></script><title>Dashboard – Jessy James Helping Hands Foundation</title></head>
 <body class="bg-slate-50 text-slate-800"><div id="app"></div>
 <script>
 if (guard()) {
@@ -245,7 +245,17 @@ const startApp = () => layout({ brand: BRAND_SHORT, nav: [['overview', 'Overview
           fld('Account name', 'bank_account_name', u.bank_account_name || u.name, 'text', 'required placeholder="As it appears on your bank account"' + lk('bank_account_name'))
           + `<label class="block text-sm"><span class="text-slate-600">Bank name</span><input name="bank_name" list="banks" value="${esc(u.bank_name || '')}" required placeholder="Choose or type your bank" class="${inp} mt-1"${lk('bank_name')}><datalist id="banks">${NG_BANKS.map(b => `<option value="${esc(b)}">`).join('')}</datalist></label>`
           + fld('Account number', 'bank_account_number', u.bank_account_number, 'text', 'required inputmode="numeric" pattern="[0-9]{10}" placeholder="10 digits"' + (LK('bank_account_number') ? lk('bank_account_number') : ' title="Your 10-digit account number"')))
-      + `<div class="flex flex-wrap items-center gap-3"><button class="${btn}">Save changes</button><span id="psv" class="text-sm text-slate-500"></span></div></form>`;
+      + `<div class="flex flex-wrap items-center gap-3"><button class="${btn}">Save changes</button><span id="psv" class="text-sm text-slate-500"></span></div></form>`
+      + `<form id="pwf" class="mt-6 max-w-3xl">` + sec('Change password', 'Use at least 8 characters. You stay logged in on this device.',
+          `<label class="block text-sm sm:col-span-2"><span class="text-slate-600">Current password</span><input name="current" type="password" autocomplete="current-password" required class="${inp} mt-1"></label>`
+          + `<label class="block text-sm"><span class="text-slate-600">New password</span><input name="password" type="password" autocomplete="new-password" minlength="8" required class="${inp} mt-1"></label>`
+          + `<label class="block text-sm"><span class="text-slate-600">Confirm new password</span><input name="passwordConfirm" type="password" autocomplete="new-password" minlength="8" required class="${inp} mt-1"></label>`
+          + `<div class="sm:col-span-2"><button class="${btn}">Change password</button></div>`) + `</form>`;
+    $('#pwf').onsubmit = async e => { e.preventDefault(); const d = Object.fromEntries(new FormData(e.target));
+      if (d.password.length < 8) return toast('The new password must be at least 8 characters.', 1);
+      if (d.password !== d.passwordConfirm) return toast('The new passwords do not match.', 1);
+      try { await pb.send('/api/jjhhf/me/password', { method: 'POST', body: d }); await pb.collection('users').authWithPassword(u.email, d.password); e.target.reset(); toast('Password changed.'); }
+      catch (x) { toast(x.response?.message || x.message, 1, 6000); } };
     const f = $('#pf2'), an = f.querySelector('[name="bank_account_number"]');
     an.oninput = () => { an.value = an.value.replace(/\D/g, '').slice(0, 10); };
     f.onsubmit = async e => {
