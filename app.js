@@ -635,7 +635,7 @@ window.openPlan = i => {
 // ===== app shell: sidebar, top bar with global plan search, keyboard shortcuts =====
 // deps: { viewId: [collections it shows] }; a live change to any other collection does not re-draw that view. minGap: least ms between two re-draws.
 // search: { placeholder, run: async q => [{ label, sub, href }] } replaces the header's plan search (the admin panel uses it to find members)
-function layout({ brand, sub = 'Helping Hands Foundation', nav, views, alias = {}, support = false, badges = null, live = [], onLive = null, chip = null, deps = {}, minGap = 1500, search = null }) {
+function layout({ brand, sub = 'Helping Hands Foundation', nav, views, alias = {}, support = false, badges = null, live = [], onLive = null, chip = null, deps = {}, minGap = 1500, search = null, livePill = false }) {
   const u = pb.authStore.record, ini = (u.name || u.email || '?').trim()[0].toUpperCase();
   $('#app').innerHTML = `<div class="min-h-screen lg:flex">
   <div id="ov" class="fixed inset-0 bg-slate-900/40 z-30 hidden lg:hidden"></div>
@@ -741,7 +741,10 @@ function layout({ brand, sub = 'Helping Hands Foundation', nav, views, alias = {
       if (busyUI()) { lt = setTimeout(run, 2000); return; }
       lt = null;
       if (Date.now() - drawnAt < 4000) return;                                    // the page was just drawn after the user's own action: already fresh
-      if (Date.now() - lastUse < 20000 || scrollY > 150) { showPill(); return; }   // in use: offer, don't re-draw
+      if (Date.now() - lastUse < 20000 || scrollY > 150) {                          // in use: don't re-draw under them
+        if (livePill) { showPill(); return; }                                       // admin: offer a "New updates" button
+        lt = setTimeout(run, 5000); return;                                         // members: quietly wait until they pause
+      }
       lastRun = Date.now(); quiet(); refresh();
     }, Math.max(delay, minGap - (Date.now() - lastRun)));
   };
@@ -805,7 +808,8 @@ function txHistory(m, o) {
   window.TXCUST = cust; reg(txs);
   if (!remote && !txs.length) { m.innerHTML = table([], []); return; }
   window._hf = window._hf || {};
-  const F = window._hf[key] || (window._hf[key] = { from: '', to: '', status: 'all', kind: 'all', q: '' });
+  const F = window._hf[key] || (window._hf[key] = { from: '', to: '', status: 'all', kind: 'all', q: '', group: true });
+  if (F.group === undefined) F.group = true;
   const PRE = { all: ['All time', () => ['', '']], today: ['Today', () => [todayL(), todayL()]], 7: ['Last 7 days', () => [addDays(todayL(), -6), todayL()]], 30: ['Last 30 days', () => [addDays(todayL(), -29), todayL()]], month: ['This month', () => [todayL().slice(0, 8) + '01', todayL()]] };
   const lab = 'block text-xs font-medium text-slate-500';
   m.innerHTML = `<div class="bg-white border rounded-xl p-4 mb-4 space-y-3">
@@ -816,11 +820,26 @@ function txHistory(m, o) {
       ${multi ? `<label class="${lab}">Type<select id="hk" class="${inp} mt-1">${opts({ all: 'All types', payment: 'Payments', payout: 'Payouts' }, F.kind)}</select></label>` : ''}
       <label class="${lab}">Status<select id="hs" class="${inp} mt-1">${opts({ all: 'All statuses', pending: 'Pending', confirmed: 'Confirmed', rejected: 'Rejected' }, F.status)}</select></label>
     </div>
-    <div class="flex flex-wrap items-center gap-3"><div class="relative flex-1 min-w-[200px]"><span class="absolute left-3 top-2.5 text-slate-400">${ic(IC.search)}</span><input id="hq" value="${esc(F.q)}" placeholder="Search plan, reference or invoice no…" class="${inp} pl-10"></div><button type="button" id="hx" class="text-sm font-medium text-emerald-800 hover:underline">Clear filters</button></div></div>
+    <div class="flex flex-wrap items-center gap-3"><div class="relative flex-1 min-w-[200px]"><span class="absolute left-3 top-2.5 text-slate-400">${ic(IC.search)}</span><input id="hq" value="${esc(F.q)}" placeholder="Search plan, reference or invoice no…" class="${inp} pl-10"></div><label class="inline-flex items-center gap-2 text-sm text-slate-700 cursor-pointer"><input id="hg" type="checkbox" ${F.group ? 'checked' : ''} class="w-4 h-4 rounded accent-emerald-700">Group payments made together</label><button type="button" id="hx" class="text-sm font-medium text-emerald-800 hover:underline">Clear filters</button></div></div>
     <div class="flex flex-wrap items-center justify-between gap-2 mb-3"><p id="hc" class="text-sm text-slate-500"></p><button type="button" id="hd" class="${btn2}">Download statement (PDF)</button></div><div id="hr"></div>`;
   const heads = ['Date', ...(showUser ? ['Member'] : []), ...(multi ? ['Type'] : []), 'Plan', 'Amount', 'Covers', 'Penalty', 'Note', 'Status', ''];
   const row = t => [date(t.created), ...(showUser ? [ulink(t.user)] : []), ...(multi ? [t.kind === 'payment' ? 'Payment' : 'Payout'] : []), esc(t.plan), naira(t.amount), t.covers || '—', t.penalty ? penBadge({ penalty: t.penalty }) : '—', esc(t.note) || '—', badge(t.status),
     extra(t) + `<button type="button" onclick="dlInvoice('${t.key}')" class="px-2.5 py-1 text-xs rounded-md border font-medium bg-white text-slate-700 hover:bg-slate-50">${t.kind === 'payment' ? 'Invoice' : 'Receipt'} (PDF)</button>`];
+  // Payments for plans joined together (or taken in the same run) arrive as many lines at the same moment: show them as one line
+  // ("Grocery 4 weeks × 10", the total) with the single lines and their invoices inside. Same member, plan, type, status and note,
+  // within 2 minutes of each other.
+  const sameNote = n => String(n || '').replace(/\d+/g, '#');
+  const grouped = list => { if (!F.group) return list; const out = [];
+    list.forEach(t => { const g = out[out.length - 1], tu = t.user?.id || t.user || '';
+      if (g && g.kind === t.kind && g.status === t.status && g.plan === t.plan && g.uid === tu && g.nk === sameNote(t.note) && Math.abs(parseTs(g.items[g.items.length - 1].created) - parseTs(t.created)) < 120000) { g.items.push(t); return; }
+      out.push({ grp: true, kind: t.kind, status: t.status, plan: t.plan, uid: tu, nk: sameNote(t.note), user: t.user, note: t.note, created: t.created, items: [t] }); });
+    return out.map(g => g.items.length === 1 ? g.items[0] : Object.assign(g, { amount: g.items.reduce((a, x) => a + (x.amount || 0), 0), penalty: g.items.reduce((a, x) => a + (x.penalty || 0), 0) })); };
+  const rowAny = t => { if (!t.grp) return row(t);
+    const list = `<details class="mt-1 text-left whitespace-normal"><summary class="cursor-pointer text-xs font-medium text-emerald-800">Show the ${t.items.length} ${t.kind === 'payment' ? 'payments' : 'payouts'}</summary><div class="mt-1 border rounded-lg divide-y bg-white max-h-56 overflow-y-auto" style="min-width:16rem">${t.items.map(x => `<div class="flex items-center justify-between gap-3 px-2 py-1 text-xs"><span class="font-mono text-slate-500">${esc(x.no || '')}</span><span>${naira(x.amount)}</span>${extra(x)}<button type="button" onclick="dlInvoice('${x.key}')" class="px-2 py-0.5 rounded border bg-white">${x.kind === 'payment' ? 'Invoice' : 'Receipt'}</button></div>`).join('')}</div></details>`;
+    return [date(t.created), ...(showUser ? [ulink(t.user)] : []), ...(multi ? [t.kind === 'payment' ? 'Payments' : 'Payouts'] : []),
+      esc(t.plan) + ` <span class="inline-flex px-1.5 py-0.5 rounded text-xs font-semibold bg-emerald-50 text-emerald-800">× ${t.items.length}</span>` + list,
+      naira(t.amount) + `<span class="block text-xs text-slate-500">${t.items.every(x => x.amount === t.items[0].amount) ? t.items.length + ' × ' + naira(t.items[0].amount) : t.items.length + ' payments'}</span>`,
+      t.items[0].covers ? t.items[0].covers + ' each' : '—', t.penalty ? penBadge({ penalty: t.penalty }) : '—', esc(t.note) || '—', badge(t.status), '']; };
   let cur = [], page = 1, seq = 0;
   const paintRemote = async () => {
     const my = ++seq; $('#hr').innerHTML = '<p class="text-sm text-slate-400 py-6">Loading…</p>';
@@ -829,7 +848,7 @@ function txHistory(m, o) {
     reg(r.txs); cur = r.txs; const pages = Math.max(1, Math.ceil(r.total / PER));
     document.querySelectorAll('#hp button').forEach(b => { const [f, t] = PRE[b.dataset.p][1](), on = f === F.from && t === F.to; b.className = 'whitespace-nowrap px-3 py-1.5 rounded-full text-sm font-medium border ' + (on ? 'bg-emerald-800 text-white border-emerald-800' : 'bg-white text-slate-600 hover:bg-slate-100'); });
     $('#hc').innerHTML = `<b class="text-slate-700">${r.total.toLocaleString()}</b> transactions match`;
-    $('#hr').innerHTML = (cur.length ? table(heads, cur.map(row)) : '<div class="bg-white border border-dashed rounded-xl p-10 text-center text-slate-500 text-sm">No transactions match. Try a wider date range or clear the filters.</div>')
+    $('#hr').innerHTML = (cur.length ? table(heads, grouped(cur).map(rowAny)) : '<div class="bg-white border border-dashed rounded-xl p-10 text-center text-slate-500 text-sm">No transactions match. Try a wider date range or clear the filters.</div>')
       + (r.total > PER ? `<div class="flex flex-wrap items-center justify-between gap-3 mt-4 text-sm text-slate-500"><span>Page ${page} of ${pages.toLocaleString()}</span><span class="flex gap-2"><button data-pg="${page - 1}" ${page > 1 ? '' : 'disabled'} class="${pgBtn}">← Previous</button><button data-pg="${page + 1}" ${page < pages ? '' : 'disabled'} class="${pgBtn}">Next →</button></span></div>` : '');
     $('#hr').querySelectorAll('[data-pg]').forEach(b => b.onclick = () => { page = +b.dataset.pg; paintRemote(); });
   };
@@ -841,15 +860,16 @@ function txHistory(m, o) {
     document.querySelectorAll('#hp button').forEach(b => { const [f, t] = PRE[b.dataset.p][1](), on = f === F.from && t === F.to; b.className = 'whitespace-nowrap px-3 py-1.5 rounded-full text-sm font-medium border ' + (on ? 'bg-emerald-800 text-white border-emerald-800' : 'bg-white text-slate-600 hover:bg-slate-100'); });
     const saved = cur.filter(t => t.kind === 'payment' && t.status === 'confirmed').reduce((a, t) => a + t.amount - t.penalty, 0);
     $('#hc').innerHTML = `<b class="text-slate-700">${cur.length}</b> of ${txs.length} transactions` + (cur.some(t => t.kind === 'payment') ? ` · Confirmed savings <b class="text-slate-700">${naira(saved)}</b>` : '');
-    $('#hr').innerHTML = cur.length ? table(heads, cur.map(row)) : '<div class="bg-white border border-dashed rounded-xl p-10 text-center text-slate-500 text-sm">No transactions match. Try a wider date range or clear the filters.</div>';
+    $('#hr').innerHTML = cur.length ? table(heads, grouped(cur).map(rowAny)) : '<div class="bg-white border border-dashed rounded-xl p-10 text-center text-slate-500 text-sm">No transactions match. Try a wider date range or clear the filters.</div>';
   };
   $('#hp').onclick = e => { const b = e.target.closest('button'); if (!b) return; [F.from, F.to] = PRE[b.dataset.p][1](); $('#hf').value = F.from; $('#ht').value = F.to; paint(); };
   $('#hf').onchange = e => { F.from = e.target.value; if (F.to && F.from > F.to) { F.to = F.from; $('#ht').value = F.to; } paint(); };
   $('#ht').onchange = e => { F.to = e.target.value; if (F.from && F.from > F.to && F.to) { F.from = F.to; $('#hf').value = F.from; } paint(); };
   $('#hs').onchange = e => { F.status = e.target.value; paint(); };
+  $('#hg').onchange = e => { F.group = e.target.checked; paint(); };
   if (multi) $('#hk').onchange = e => { F.kind = e.target.value; paint(); };
   $('#hq').oninput = e => { F.q = e.target.value; paint(true); };
-  $('#hx').onclick = () => { Object.assign(F, { from: '', to: '', status: 'all', kind: 'all', q: '' }); txHistory(m, o); };
+  $('#hx').onclick = () => { Object.assign(F, { from: '', to: '', status: 'all', kind: 'all', q: '', group: true }); txHistory(m, o); };
   $('#hd').onclick = async () => {
     let list = cur;
     try {

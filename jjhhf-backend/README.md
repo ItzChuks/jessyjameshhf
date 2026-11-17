@@ -104,6 +104,11 @@ plan and its payout requests are shown and marked paid together.
   contribution), start date, amount paid, late penalty, status (running / completed / cancelled), plan code dates (a first day in
   the past = already open; a plan without a code can be given one), clearance fee paid (marks only, no money moves) and note.
   Changing the start date no longer moves the plan code's dates. Route: `POST /api/jjhhf/admin/edit-plan`.
+- **Late penalty per plan** (Edit plan): "Charge the penalty" (usual), "Waive it on what is overdue now", or "No penalty on this
+  plan" (never; stored as `no_penalty_before = 2999-12-31`). Works even when the plan has a payout request; anything due is then
+  collected at the normal amount. The plan row shows "No late penalty". Route: `edit-plan` with `penalty_mode`.
+- **Transaction history**: payments made together (same plan, moment, status) show as one line "Plan × N" with the single
+  payments and their invoices inside; "Group payments made together" switches it off.
 - **Plans joined with a plan code**: wherever "used by" shows (Plan codes page, code page, member page, the member's own
   dashboard), the joined plan's status and payments so far are shown too (`GET /api/jjhhf/code/referred?ids=`; members only
   see plans joined with their own codes).
@@ -145,7 +150,7 @@ plan and its payout requests are shown and marked paid together.
   restore, make admin / user. The history is kept in the open browser tab (lost on reload, last 50 actions). Deleting, importing,
   editing plans and receipt decisions are not undoable. Plan code changes return `before` / `after` snapshots;
   `POST /api/jjhhf/admin/code-restore` puts one back.
-- **Live updates**: pages update themselves only when nobody is using them; otherwise a "New updates" button appears.
+- **Live updates**: pages update themselves only when nobody is using them; admins then see a "New updates" button, members' pages simply wait until they pause.
 - **Delete plan** (Plans page: Delete on a row, in the plan panel, or tick several; member page: Delete on a plan card):
   erases the plan(s) and everything linked: member plans (a group card goes as a whole; deleting a plan type removes every
   member's membership of it and then the plan), payments, payout requests, fees and wallet history. The window shows the counts

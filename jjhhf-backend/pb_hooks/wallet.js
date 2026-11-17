@@ -370,6 +370,7 @@ const MANUAL = /^(Brought over|Adjusted by admin)/;
 // (mark the clearance fee paid / not paid, nothing is charged), status (active | completed | cancelled).
 // Schedule changes (start, amount paid, plan, penalty) need a running plan without a payout request; the rest always works.
 const has = v => v !== undefined && v !== null && v !== "";
+const NO_PENALTY_EVER = "2999-12-31 00:00:00.000Z";               // "no late penalty on this plan" (see penalty_mode)
 function editPlan(app, sid, changes) {
   let rec; try { rec = app.findRecordById("subscriptions", String(sid || "")); } catch (_) { throw new BadRequestError("Plan not found."); }
   const uid = rec.getString("user");
@@ -392,6 +393,13 @@ function editPlan(app, sid, changes) {
     if (!changes.clearance_paid) rec.set("clearance_paid_at", "");
   }
   if (has(changes.note) || changes.note === "") rec.set("import_note", String(changes.note || "").trim().slice(0, 300));
+  // late penalty on this plan: "normal" (usual rules), "waive" (not on what is overdue now; later late payments as usual),
+  // "none" (never on this plan: no_penalty_before far in the future, so every deadline falls before it)
+  if (has(changes.penalty_mode)) {
+    const m = String(changes.penalty_mode);
+    if (!["normal", "waive", "none"].includes(m)) throw new BadRequestError("Unknown penalty choice.");
+    rec.set("no_penalty_before", m === "normal" ? "" : m === "none" ? NO_PENALTY_EVER : ts(new Date()));
+  }
   app.save(rec);
   const sched = has(changes.days) || has(changes.amount_paid) || has(changes.plan) || (changes.charge_penalty !== undefined && changes.charge_penalty !== null);
   if (!sched || rec.getString("status") !== "active") {

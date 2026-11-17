@@ -427,7 +427,7 @@ routerAdd("POST", "/api/jjhhf/admin/edit-plan", (e) => {
   const b = e.requestInfo().body || {};
   let out = {};
   W.inTx((tx) => { out = W.editGroup(tx, String(b.subscription || ""), { days: b.days, amount_paid: b.amount_paid, charge_penalty: b.charge_penalty === undefined ? undefined : !!b.charge_penalty, charge_difference: !!b.charge_difference, note: b.note,
-    plan: b.plan, status: b.status, code_from: b.code_from, code_until: b.code_until, give_code: !!b.give_code, move_code: !!b.move_code, clearance_paid: b.clearance_paid === undefined ? undefined : !!b.clearance_paid }); });
+    plan: b.plan, status: b.status, code_from: b.code_from, code_until: b.code_until, give_code: !!b.give_code, move_code: !!b.move_code, penalty_mode: b.penalty_mode, clearance_paid: b.clearance_paid === undefined ? undefined : !!b.clearance_paid }); });
   return e.json(200, out);
 }, $apis.requireAuth());
 
