@@ -44,3 +44,10 @@ Push these files (the folder's contents, not a folder) to the root of the GitHub
 
 Set `USE_MOCK = true` in `app.js` to try everything without a server (data stays in the browser).
 Demo logins: `admin@jjhhf.test` / `admin12345`, `user@jjhhf.test` / `user12345`.
+
+## Legal wording (Nov 2026)
+Following the foundation's legal analysis (CAMA 2020, SEC guidance), the public pages use mutual-aid wording: "Community Mutual Aid & Welfare
+Initiative", membership contributions (not savings), membership account (the dashboard Wallet), discretionary welfare grants (not payouts),
+member nomination codes (plan codes), and a Statutory Non-Profit Declaration. Sign-up has a compulsory non-profit confirmation tick box.
+The Terms (app.js termsHTML) include the membership undertakings, discretionary welfare terms, indemnity, estate/beneficiary and NDPA 2023
+data protection clauses from the membership and indemnity forms. The forms are downloadable at forms/membership-and-indemnity-form.pdf.

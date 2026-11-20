@@ -1,15 +1,15 @@
 <!DOCTYPE html><html lang="en"><head>
-<link rel="preconnect" href="https://jessyjameshhf-production.up.railway.app" crossorigin><link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="tailwind.css?v=20261117b"><script src="theme.js?v=20261117b"></script><script src="https://cdn.jsdelivr.net/npm/pocketbase@0.26.8/dist/pocketbase.umd.js"></script><script src="mock.js?v=20261117b"></script><script src="app.js?v=20261117b"></script><title>Account – Jessy James Helping Hands Foundation</title></head>
+<link rel="preconnect" href="https://jessyjameshhf-production.up.railway.app" crossorigin><link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="tailwind.css?v=20261120a"><script src="theme.js?v=20261120a"></script><script src="https://cdn.jsdelivr.net/npm/pocketbase@0.26.8/dist/pocketbase.umd.js"></script><script src="mock.js?v=20261120a"></script><script src="app.js?v=20261120a"></script><title>Account – Jessy James Helping Hands Foundation</title></head>
 <body class="min-h-screen bg-slate-50 lg:grid lg:grid-cols-2">
 <aside class="hidden lg:flex flex-col justify-between bg-brand-950 text-white p-12 relative overflow-hidden" style="background-image:radial-gradient(40rem 26rem at 0% 0%,rgba(93,134,247,.28),transparent),radial-gradient(30rem 20rem at 100% 100%,rgba(245,183,42,.18),transparent)">
   <a href="index.html" class="flex items-center gap-3"><img src="logo.png" alt="" class="w-12 h-12 rounded-xl bg-white"><span class="leading-tight"><span class="block font-semibold">Jessy James</span><span class="block text-sm text-brand-200">Helping Hands Foundation</span></span></a>
   <div class="max-w-md">
-    <p class="text-accent-300 text-sm font-semibold uppercase tracking-[.18em]">Empowering lives, feeding hope</p>
-    <h2 class="font-display text-4xl xl:text-5xl leading-[1.1] mt-4">Saving is easier when we hold hands.</h2>
-    <p class="text-brand-100/80 mt-5 leading-relaxed">Join a community that saves together daily or weekly on Grocery plans of 4 to 25 weeks, and collects a stocked kitchen when the plan ends. Your wallet, your plans and every receipt live on your dashboard.</p>
+    <p class="text-accent-300 text-sm font-semibold uppercase tracking-[.18em]">Support together · Uplift together</p>
+    <h2 class="font-display text-4xl xl:text-5xl leading-[1.1] mt-4">Helping each other is easier when we hold hands.</h2>
+    <p class="text-brand-100/80 mt-5 leading-relaxed">Join our non-profit mutual aid and welfare community through voluntary weekly contributions on Ultimate plans of 4 to 25 weeks. Your membership account, your plans and every receipt live on your dashboard.</p>
     <ul class="mt-8 space-y-3 text-sm text-brand-100/90">
       <li class="flex gap-3"><span class="w-6 h-6 rounded-full bg-accent-400 text-brand-950 grid place-items-center text-xs font-bold shrink-0">1</span>Create your account in two minutes</li>
-      <li class="flex gap-3"><span class="w-6 h-6 rounded-full bg-accent-400 text-brand-950 grid place-items-center text-xs font-bold shrink-0">2</span>Fund your wallet online</li>
+      <li class="flex gap-3"><span class="w-6 h-6 rounded-full bg-accent-400 text-brand-950 grid place-items-center text-xs font-bold shrink-0">2</span>Top up your membership account by bank transfer</li>
       <li class="flex gap-3"><span class="w-6 h-6 rounded-full bg-accent-400 text-brand-950 grid place-items-center text-xs font-bold shrink-0">3</span>Join a plan; contributions are paid automatically</li>
     </ul>
   </div>
@@ -290,7 +290,7 @@ function draw(){
  ['login','register'].forEach(m=>$('#t-'+m).className='py-2 rounded-md transition '+(m===mode?'bg-white shadow text-slate-900':'text-slate-500 hover:text-slate-700'));
  const reg=mode==='register';
  $('#ttl').textContent=reg?'Create your account':'Welcome back';
- $('#sub').textContent=reg?'Join the foundation and start saving today.':'Log in to manage your savings plans.';
+ $('#sub').textContent=reg?'Become a member of our mutual aid and welfare community.':'Log in to manage your membership and contributions.';
  $('#alt').innerHTML=reg?'Already have an account? <button type="button" id="sw" class="text-emerald-800 font-medium hover:underline">Log in</button>':'New here? <button type="button" id="sw" class="text-emerald-800 font-medium hover:underline">Create an account</button>';
  $('#sw').onclick=()=>{mode=reg?'login':'register';draw()};
  $('#f').innerHTML=(reg?
@@ -311,8 +311,9 @@ function draw(){
  +field('Email address','email','email',reg?'email':'username','required placeholder="you@example.com"')
  +pwField('Password',reg?'password':'password',reg?'new-password':'current-password',reg?'At least 8 characters.':'')
  +(reg?pwField('Confirm password','passwordConfirm','new-password'):'<p class="text-right"><button type="button" id="fp" class="text-sm text-emerald-800 font-medium hover:underline">Forgot password?</button></p>')
- +(reg?`<div class="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900"><p class="text-sm font-semibold">Before you join</p><ul class="list-disc pl-4 mt-1 space-y-0.5"><li>You fund your wallet by bank transfer and upload the receipt. No BVN or NIN needed. Every deposit carries a <b>${naira(FEES.tax)} tax charge</b> (to add ${naira(3000)} you pay ${naira(3000+FEES.tax)}).</li><li>Joining fee: <b>${naira(FEES.join)}</b>, taken from your wallet each time you join a plan.</li><li>Grocery plans run <b>4, 8, 12 or 25 weeks</b>. Your first payment is made the day you join, then every 7 days, <b>before 12:00 noon</b> on each due day (late = double); payouts open after the days shown on each plan (e.g. 30 for 4 weeks). Each plan you join gives you a <b>plan code</b>, usable once (by you or someone you share it with) between the days shown on the plan.</li><li>One-time t-shirt fee: <b>${naira(FEES.shirt)}</b>, only required when you request a payout. Payout clearance fee: <b>${naira(FEES.clearance)}</b> per request.</li><li>To request a payout you need <b>another plan that has been running for at least 2 weeks</b>.</li></ul></div>
-  <label class="flex items-start gap-2 text-sm text-slate-700 cursor-pointer"><input id="terms" type="checkbox" class="mt-0.5 w-4 h-4 shrink-0 accent-emerald-700"><span>I have read and accept the <a href="terms.html" target="_blank" class="text-emerald-800 underline">Terms and Conditions</a>, including these fees.</span></label>`:'')
+ +(reg?`<div class="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900"><p class="text-sm font-semibold">Before you join</p><ul class="list-disc pl-4 mt-1 space-y-0.5"><li>${BRAND} is a <b>non-profit, community-based mutual aid and welfare foundation</b>. It is not a bank, investment, deposit scheme or loan platform, and it does not offer guaranteed returns.</li><li>You top up your membership account (Wallet) by bank transfer and upload the receipt. No BVN or NIN needed. Every top-up carries a <b>${naira(FEES.tax)} tax charge</b> (to add ${naira(3000)} you pay ${naira(3000+FEES.tax)}).</li><li>Administrative (joining) fee: <b>${naira(FEES.join)}</b>, taken from your membership account each time you join a plan.</li><li>Ultimate plans run <b>4, 8, 12 or 25 weeks</b>. Your first contribution is made the day you join, then every 7 days, <b>before 12:00 noon</b> on each due day (late = double). Each plan you join gives you a <b>nomination (plan) code</b>, usable once between the days shown on the plan.</li><li>Welfare grants are <b>discretionary</b>, subject to eligibility, approval and available pool resources. One-time t-shirt fee: <b>${naira(FEES.shirt)}</b> and clearance fee: <b>${naira(FEES.clearance)}</b> per plan, only when you apply. You also need <b>another plan running for at least 2 weeks</b>.</li></ul></div>
+  <label class="flex items-start gap-2 text-sm text-slate-700 cursor-pointer"><input id="npd" type="checkbox" class="mt-0.5 w-4 h-4 shrink-0 accent-emerald-700"><span>I confirm that I am joining as a member of this non-profit mutual aid association and understand that this platform does not offer financial investments, guaranteed returns, or interest-bearing savings.</span></label>
+  <label class="flex items-start gap-2 text-sm text-slate-700 cursor-pointer"><input id="terms" type="checkbox" class="mt-0.5 w-4 h-4 shrink-0 accent-emerald-700"><span>I have read and accept the <a href="terms.html" target="_blank" class="text-emerald-800 underline">Terms and Conditions</a>, including these fees, and I consent to the processing of my personal data under the Nigeria Data Protection Act 2023.</span></label>`:'')
  +`<button id="go" class="${btn} w-full py-2.5 mt-1">${reg?'Create account':'Log in'}</button>`;
  hideErr();
  if($('#fp'))$('#fp').onclick=()=>{const em=($('#email')||{}).value||'';mode='forgot';draw();if(em)$('#email').value=em;$('#email').focus()};
@@ -447,6 +448,7 @@ $('#f').onsubmit=async e=>{
    if(digits.length<6||digits.length>12)throw new Error('Enter a valid phone number.');
    if(d.password.length<8)throw new Error('Password must be at least 8 characters.');
    if(d.password!==d.passwordConfirm)throw new Error('Passwords do not match.');
+   if(!$('#npd').checked)throw new Error('Please confirm that you are joining a non-profit mutual aid association (the first tick box).');
    if(!$('#terms').checked)throw new Error('Please accept the Terms and Conditions to create your account.');
    busy(true);
    await pb.collection('users').create({name:d.name.trim(),email,password:d.password,passwordConfirm:d.passwordConfirm,country:sel.n,phone:'+'+sel.d+digits,emailVisibility:true,terms_accepted:true});

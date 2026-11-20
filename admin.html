@@ -1,5 +1,5 @@
 <!DOCTYPE html><html lang="en"><head>
-<link rel="preconnect" href="https://jessyjameshhf-production.up.railway.app" crossorigin><link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><link rel="stylesheet" href="tailwind.css?v=20261117b"><script src="theme.js?v=20261117b"></script><script src="https://cdn.jsdelivr.net/npm/pocketbase@0.26.8/dist/pocketbase.umd.js"></script><script src="mock.js?v=20261117b"></script><script src="pdf.js?v=20261117b"></script><script src="app.js?v=20261117b"></script><title>Admin – Jessy James Helping Hands Foundation</title></head>
+<link rel="preconnect" href="https://jessyjameshhf-production.up.railway.app" crossorigin><link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><link rel="stylesheet" href="tailwind.css?v=20261120a"><script src="theme.js?v=20261120a"></script><script src="https://cdn.jsdelivr.net/npm/pocketbase@0.26.8/dist/pocketbase.umd.js"></script><script src="mock.js?v=20261120a"></script><script src="pdf.js?v=20261120a"></script><script src="app.js?v=20261120a"></script><title>Admin – Jessy James Helping Hands Foundation</title></head>
 <body class="bg-slate-50 text-slate-800"><div id="app"></div>
 <script>
 if(guard('admin')){
@@ -401,7 +401,7 @@ window.planForm=async id=>{
  const p=id?await col('plans').getOne(id):{category:'grocery',frequency:'weekly',active:true,weeks:4,code_from_day:4,code_until_day:7,payout_after_days:30};
  const w0=id?weeksOf(p):4, pbtn='px-2.5 py-1 text-xs rounded-full border bg-white text-slate-600 hover:bg-slate-100';
  modal(id?'Edit plan':'Add plan',
-  fld('Name','name',p.name||'','text','required placeholder="e.g. Grocery 4 weeks"')+'<input type="hidden" name="category" value="grocery">'
+  fld('Name','name',p.name||'','text','required placeholder="e.g. Ultimate plan 4 weeks"')+'<input type="hidden" name="category" value="grocery">'
   +sel('Contributions','frequency',['weekly','daily'],p.frequency==='daily'?'daily':'weekly')
   +fld('Amount per payment (₦)','amount',p.amount||'','number','required min="1"')
   +'<div><label class="block text-sm"><span class="text-slate-600">Plan length (weeks)</span><input name="weeks" type="number" min="1" step="1" value="'+w0+'" required class="'+inp+' mt-1"></label>'
@@ -435,7 +435,7 @@ window.planForm=async id=>{
  document.querySelectorAll('[data-w]').forEach(b=>b.onclick=()=>{F('weeks').value=b.dataset.w;calc()});
  calc()};
 // starter plans: one weekly Grocery plan per length (edit the amounts and code days to suit)
-window.seed=async()=>{const P=[[4,2000],[8,2000],[12,2000],[25,2000]].map(([wk,a])=>({name:'Grocery '+wk+' weeks',category:'grocery',frequency:'weekly',amount:a,weeks:wk,months:Math.max(1,Math.round(wk/4.345)),duration:wk,payout:a*wk,payout_after_days:Math.round(wk*7.5),description:'',code_from_day:4,code_until_day:7,active:true}));
+window.seed=async()=>{const P=[[4,2000],[8,2000],[12,2000],[25,2000]].map(([wk,a])=>({name:'Ultimate plan '+wk+' weeks',category:'grocery',frequency:'weekly',amount:a,weeks:wk,months:Math.max(1,Math.round(wk/4.345)),duration:wk,payout:a*wk,payout_after_days:Math.round(wk*7.5),description:'',code_from_day:4,code_until_day:7,active:true}));
  try{for(const p of P)await col('plans').create(p);toast('Starter plans added. Edit their amounts and code days as needed.',0,6000);refresh()}catch(e){toast(e.message,1)}};
 
 layout({livePill:true,brand:BRAND_SHORT,sub:'Admin panel',search:{placeholder:'Search members or plan codes…  ( / )',run:async q=>{const [us,cs]=await Promise.all([col('users').getList(1,6,{filter:pb.filter('name~{:q} || email~{:q} || phone~{:q} || bank_account_number~{:q}',{q}),sort:'name'}).then(r=>r.items),col('subscriptions').getList(1,5,{filter:'code!="" && '+codeSearch(q),expand:'user,plan',sort:'-created'}).then(r=>r.items).catch(()=>[])]);
@@ -525,7 +525,7 @@ layout({livePill:true,brand:BRAND_SHORT,sub:'Admin panel',search:{placeholder:'S
   txHistory($('#th'),{key:'user:'+id,cust:u,extra:act,txs:[...p.map(x=>txFrom(x,'payment')),...o.map(x=>txFrom(x,'payout'))].sort((a,b)=>b.at-a.at)})},
  async plans(m){const l=await col('plans').getFullList({sort:'category,frequency,amount'});window._pln=Object.fromEntries(l.map(p=>[p.id,p]));window._sel=window._sel||new Set();
 [...window._sel].forEach(id=>{if(!window._pln[id])window._sel.delete(id)});
-  m.innerHTML=head('Plans','Grocery plans of 4, 8, 12 or 25 weeks (or your own length), with the day each plan code opens and expires. Tick plans to delete several at once.',(l.length?'':'<button onclick="seed()" class="'+btn2+'">Add starter plans</button>')+'<button onclick="planForm()" class="'+btn+'">Add plan</button>')+'<div id="bk" class="mb-3"></div><div id="ex"></div><div id="bkf"></div>';
+  m.innerHTML=head('Plans','Ultimate plans of 4, 8, 12 or 25 weeks (or your own length), with the day each plan code opens and expires. Tick plans to delete several at once.',(l.length?'':'<button onclick="seed()" class="'+btn2+'">Add starter plans</button>')+'<button onclick="planForm()" class="'+btn+'">Add plan</button>')+'<div id="bk" class="mb-3"></div><div id="ex"></div><div id="bkf"></div>';
   explorer($('#ex'),l,{onPaint:()=>bulk(),cols:{heads:['SEL','Name','Contributions','Amount','Length','Payments','Payout','Payout opens','Code usable','Status',''],row:(p,i)=>['<input type="checkbox" data-sel="'+p.id+'" '+(window._sel.has(p.id)?'checked ':'')+'onchange="togSel(\''+p.id+'\',this.checked)" class="w-4 h-4 rounded accent-emerald-700" aria-label="Select '+esc(p.name)+'">','<button onclick="openPlan('+i+')" class="font-medium text-emerald-800 hover:underline">'+esc(p.name)+'</button>'+(p.category!=='grocery'?' <span class="text-xs text-slate-400">('+p.category+', retired)</span>':''),p.frequency,naira(p.amount),monthsLabel(p),nPay(p),naira(payoutOf(p)),'After '+payoutDays(p)+' days',codeDays(p)?'Day '+p.code_from_day+'–'+p.code_until_day:'<span class="text-amber-800">Not set</span>',badge(p.active?'active':'cancelled').replace('Cancelled','Hidden'),ab('Edit','planForm(\''+p.id+'\')')+ab('Delete',call('delPlans',p.id),'border text-red-600')]}});},
  async subs(m){const q=window._sq||'all';
   const SF={all:'',active:'status="active"',completed:'status="completed"',cancelled:'status="cancelled"',cleared:'clearance_paid_at!=""',uncleared:'status="active" && clearance_paid_at=""'};
