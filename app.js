@@ -786,6 +786,44 @@ function seenMark(id) { try { localStorage.setItem(seenKey(id), new Date().toISO
 // number of records matching a filter (0 if the request fails: counters must never break a page)
 const countOf = (c, filter) => pb.collection(c).getList(1, 1, { filter, fields: 'id' }).then(r => r.totalItems).catch(() => 0);
 
+// ===== wallet (membership account) history: money in and money out, organised =====
+// Entries made at the same moment for the same thing (e.g. 50 contributions or 50 registration fees taken together when joining
+// 50 times) become ONE line with the total and "× 50", the single entries inside. Money in and money out have their own columns,
+// with the balance left after each line. txs: wallet_txs, newest first.
+const WALLET_KIND = { topup: 'Deposit', contribution: 'Contribution', join: 'Registration (joining) fee', catchup: 'Catch-up', shirt: 'T-shirt fee', clearance: 'Clearance fee', reversal: 'Deposit reversed', deduction: 'Deducted by the foundation', refund: 'Refund' };
+function walletGroups(txs) {
+  const t = x => parseTs(x.created).getTime(), clusters = [];
+  txs.forEach(x => { const c = clusters[clusters.length - 1]; if (c && Math.abs(t(c[0]) - t(x)) <= 180000) c.push(x); else clusters.push([x]); });   // same moment: within 3 minutes
+  const out = [];
+  clusters.forEach(c => {
+    const by = new Map();
+    c.forEach(x => { const k = x.type + '|' + x.kind + '|' + String(x.note || '').replace(/[\d,₦]+/g, '#');
+      if (!by.has(k)) by.set(k, { type: x.type, kind: x.kind, note: x.note || '', items: [] }); by.get(k).items.push(x); });
+    by.forEach(g => { g.total = g.items.reduce((a, x) => a + (x.amount || 0), 0); g.created = g.items[0].created; g.balance = g.items[0].balance; out.push(g); });
+  });
+  return out;
+}
+function walletHistory(el, txs, { balance = null, key = 'w', more = '' } = {}) {
+  window._wf = window._wf || {}; const F = window._wf[key] || (window._wf[key] = { f: 'all' });
+  const inn = txs.filter(x => x.type === 'credit').reduce((a, x) => a + x.amount, 0), out = txs.filter(x => x.type !== 'credit').reduce((a, x) => a + x.amount, 0);
+  const reg = txs.filter(x => x.kind === 'join').reduce((a, x) => a + (x.type === 'credit' ? -1 : 1) * x.amount, 0), regN = txs.filter(x => x.kind === 'join' && x.type !== 'credit').length;
+  const card = (t, v, sub, cls = '') => `<div class="bg-white border rounded-xl p-4"><p class="text-xs font-medium text-slate-500">${t}</p><p class="text-xl font-semibold mt-1 ${cls}">${v}</p>${sub ? `<p class="text-xs text-slate-500 mt-0.5">${sub}</p>` : ''}</div>`;
+  const tm = x => date(x.created) + ' <span class="text-slate-400 text-xs whitespace-nowrap">' + new Date(parseTs(x.created)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + '</span>';
+  const paint = () => {
+    const gs = walletGroups(txs).filter(g => F.f === 'all' || (F.f === 'in' ? g.type === 'credit' : F.f === 'out' ? g.type !== 'credit' : g.kind === 'join'));
+    const rows = gs.map(g => { const n = g.items.length, isIn = g.type === 'credit';
+      const desc = `<b class="text-slate-800">${WALLET_KIND[g.kind] || g.kind}</b>${n > 1 ? ` <span class="inline-flex px-1.5 py-0.5 rounded text-xs font-semibold bg-emerald-50 text-emerald-800">× ${n}</span>` : ''}<span class="block text-xs text-slate-500 whitespace-normal">${esc(g.note)}${n > 1 && g.items.every(x => x.amount === g.items[0].amount) ? ' · ' + n + ' × ' + naira(g.items[0].amount) : ''}</span>`
+        + (n > 1 ? `<details class="mt-1"><summary class="cursor-pointer text-xs font-medium text-emerald-800">Show the ${n} entries</summary><div class="mt-1 border rounded-lg divide-y bg-white max-h-48 overflow-y-auto" style="min-width:14rem">${g.items.map(x => `<div class="flex justify-between gap-3 px-2 py-1 text-xs"><span class="text-slate-500">${new Date(parseTs(x.created)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span><span>${isIn ? '+' : '−'}${naira(x.amount)}</span><span class="text-slate-500">bal. ${naira(x.balance)}</span></div>`).join('')}</div></details>` : '');
+      return [tm(g), desc, isIn ? `<span class="font-semibold text-emerald-700">+${naira(g.total)}</span>` : '<span class="text-slate-300">—</span>', isIn ? '<span class="text-slate-300">—</span>' : `<span class="font-semibold text-red-600">−${naira(g.total)}</span>`, `<span class="font-medium">${naira(g.balance)}</span>`]; });
+    el.innerHTML = `<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">${card('Money in', '+' + naira(inn), 'Deposits, refunds and credits', 'text-emerald-700')}${card('Money out', '−' + naira(out), 'Contributions and fees', 'text-red-600')}${card('Registration (joining) fees', naira(reg), regN + ' paid')}${card('Balance now', naira(balance !== null ? balance : (txs[0] ? txs[0].balance : 0)), 'Left in the membership account')}</div>`
+      + `<div class="flex flex-wrap gap-1.5 mb-3">${[['all', 'All'], ['in', 'Money in'], ['out', 'Money out'], ['reg', 'Registration fees']].map(([k, l]) => `<button type="button" data-wf="${k}" class="px-3 py-1.5 rounded-full text-sm font-medium border ${F.f === k ? 'bg-emerald-800 text-white border-emerald-800' : 'bg-white text-slate-600 hover:bg-slate-100'}">${l}</button>`).join('')}</div>`
+      + (rows.length ? table(['Date', 'Details', 'Money in', 'Money out', 'Balance after'], rows) : '<div class="bg-white border border-dashed rounded-xl p-8 text-center text-slate-500 text-sm">Nothing here yet.</div>') + more;
+    el.querySelectorAll('[data-wf]').forEach(b => b.onclick = () => { F.f = b.dataset.wf; paint(); });
+  };
+  paint();
+}
+window.walletHistory = walletHistory;
+
 // ===== transaction history: payments + payouts in one list, date filters, PDF invoices and statements =====
 const CO = { name: BRAND, phone: SUPPORT_PHONE + ' / ' + SUPPORT_PHONE_2, email: SUPPORT_EMAIL, tagline: TAGLINE, rc: RC_NUMBER };
 const lagosDay = s => toL(parseTs(s)).toISOString().slice(0, 10);                      // YYYY-MM-DD on the Lagos calendar
