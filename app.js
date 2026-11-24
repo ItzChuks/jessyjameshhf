@@ -396,6 +396,28 @@ const copyText = t => (navigator.clipboard?.writeText ? navigator.clipboard.writ
   const a = document.createElement('textarea'); a.value = t; a.setAttribute('readonly', ''); a.style.cssText = 'position:fixed;top:-1000px;opacity:0';
   document.body.appendChild(a); a.select(); let ok = false; try { ok = document.execCommand('copy'); } catch (_) { } a.remove(); if (!ok) throw new Error('copy');
 });
+// Plan codes to pick from, grouped by the card they come from (plans joined together), oldest card first, each code numbered
+// within its card: "Ultimate plan × 10 · joined 12 Nov 2026" then "#1 JJ-… until …". attr: the tick box attribute (data-code,
+// data-pc). Each card has its own "select this card" box (data-gall), wired below for every list on the page.
+function codeGroupsHTML(list, attr, small = false) {
+  const t = x => parseTs(x.created).getTime(), G = new Map();
+  [...list].sort((a, b) => t(a) - t(b)).forEach(x => { const k = x.group_id || ('one:' + x.id); if (!G.has(k)) G.set(k, []); G.get(k).push(x); });
+  let n = 0;
+  return [...G.values()].map(g => { n++; const f = g[0], nm = esc(f.expand?.plan?.name || 'Plan'), size = f.group_size > 1 ? f.group_size : g.length;
+    return `<div data-gbox class="border-b last:border-b-0"><label class="sticky top-0 z-[1] flex items-center gap-2 px-3 py-1.5 bg-slate-50 border-b text-xs cursor-pointer"><input type="checkbox" data-gall class="w-4 h-4 rounded accent-emerald-700"><span class="min-w-0"><span class="block font-semibold text-slate-800">Card ${n}: ${nm}${size > 1 ? ' × ' + size : ''}</span><span class="block text-slate-500">Joined ${date(f.created)} · ${g.length} usable code${g.length === 1 ? '' : 's'} · select all</span></span></label>`
+      + g.map((x, i) => `<label class="flex items-center gap-2 px-3 ${small ? 'py-1' : 'py-1.5'} cursor-pointer hover:bg-slate-50 ${small ? 'text-xs' : 'text-sm'}"><input type="checkbox" ${attr}="${esc(x.code)}" class="w-4 h-4 rounded accent-emerald-700"><span class="w-7 shrink-0 text-xs text-slate-400">#${i + 1}</span><span class="font-mono font-semibold tracking-wider text-slate-900 whitespace-nowrap">${esc(x.code)}</span><span class="text-xs text-slate-500 truncate">until ${lastDay(x)}</span></label>`).join('') + '</div>'; }).join('');
+}
+window.codeGroupsHTML = codeGroupsHTML;
+document.addEventListener('change', e => {
+  if (e.target.matches && e.target.matches('[data-gall]')) {   // tick / untick every code of that card
+    const box = e.target.closest('[data-gbox]'), on = e.target.checked; window._gbulk = true;
+    try { box.querySelectorAll('input[type=checkbox]:not([data-gall])').forEach(b => { if (b.checked !== on) { b.checked = on; b.dispatchEvent(new Event('change', { bubbles: true })); } }); }
+    finally { window._gbulk = false; e.target.checked = on; e.target.indeterminate = false; }
+  } else if (!window._gbulk && e.target.closest && e.target.closest('[data-gbox]') && e.target.type === 'checkbox') {   // keep the card's box in step
+    const box = e.target.closest('[data-gbox]'), all = [...box.querySelectorAll('input[type=checkbox]:not([data-gall])')], k = all.filter(b => b.checked).length, g = box.querySelector('[data-gall]');
+    if (g) { g.checked = k === all.length; g.indeterminate = k > 0 && k < all.length; }
+  }
+});
 window.copyCode = c => copyText(c).then(() => toast('Code copied: ' + c), () => toast(c));
 // several codes at once, one per line (easy to paste into WhatsApp or the "plan codes" box)
 window.copyCodes = list => { list = [...new Set((list || []).filter(Boolean))]; if (!list.length) return toast('No codes to copy. Tick some first.', 1);
@@ -409,7 +431,9 @@ window.copyTicked = el => copyCodes(ccTicked(el.closest('[data-ccbox]')).map(x =
 window.copyAllIn = el => copyCodes(ccAllCodes(el.closest('[data-ccbox]')));
 window.tickAll = (el, on) => { el.closest('[data-ccbox]').querySelectorAll('[data-cc]').forEach(b => { b.checked = on; }); ccCount(el.closest('[data-ccbox]')); };
 // "N selected" counter: any <span data-ccn> inside a data-ccbox shows how many of its codes are ticked (and keeps Select all in step)
-const ccCount = box => { if (!box) return; const all = ccAllCodes(box), n = ccTicked(box).length;
+const ccCount = box => { if (!box) return;
+  if (box.dataset.all === '1') { const t = (+box.dataset.total || 0).toLocaleString(); box.querySelectorAll('[data-ccn]').forEach(el => { el.textContent = 'All ' + t + ' selected (every page)'; el.style.fontWeight = '600'; el.style.color = ''; }); box.querySelectorAll('[data-cc]').forEach(b => { b.checked = true; }); box.querySelectorAll('[data-ccall]').forEach(el => { el.checked = true; el.indeterminate = false; }); return; }
+  const all = ccAllCodes(box), n = ccTicked(box).length;
   box.querySelectorAll('[data-ccn]').forEach(el => { el.textContent = n ? n + ' of ' + all.length + ' selected' : 'None selected'; el.style.fontWeight = n ? '600' : ''; el.style.color = n ? '' : '#64748b'; });
   box.querySelectorAll('[data-ccall]').forEach(el => { el.checked = all.length > 0 && n === all.length; el.indeterminate = n > 0 && n < all.length; }); };
 document.addEventListener('change', e => { if (e.target.matches && e.target.matches('[data-cc]')) { const box = e.target.closest('[data-ccbox]');

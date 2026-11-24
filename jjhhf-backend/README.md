@@ -152,6 +152,9 @@ plan and its payout requests are shown and marked paid together.
 - **Locked address and payout details**: a member fills in their home address, bank name, account name and account number once;
   after that the server refuses changes from the member (pb_hooks/main.pb.js) and the Profile page shows them locked. Admins
   change them with "Edit details" on the member's page (undoable). Clearing a field there lets the member fill it in again.
+- **Select every code in the list** (Plan codes): tick "Select all on this page", then "Select all N codes in this list" to make
+  Copy / Open now / Mark used / Mark expired / Restore / Link / Reopen act on every code matching the tab and search, across all
+  pages (sent in batches of 1000; undoable).
 - **Undo / redo** (arrows in the admin top bar, or Ctrl+Z / Ctrl+Shift+Z): plan code changes (one or many, including reopen),
   complete / cancel a plan, wallet credit and deduct (undone with an opposite entry the member sees as a correction), suspend /
   restore, make admin / user. The history is kept in the open browser tab (lost on reload, last 50 actions). Deleting, importing,
