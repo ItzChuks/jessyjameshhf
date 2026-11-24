@@ -72,7 +72,7 @@ function createMockPB() {
   // ---- demo stand-in for the server's wallet routes (the real logic lives in pb_hooks/wallet.js) ----
   const post = (uidv, amount, kind, note, extra = {}) => {
     const u = db.users.find(x => x.id === uidv), bal = (u.wallet_balance || 0) + amount;
-    if (bal < 0 && !extra.allowNegative) throw new Error('Not enough money in your wallet.'); delete extra.allowNegative;
+    if (amount < 0 && bal < 0 && !extra.allowNegative) throw new Error('Not enough money in your wallet.'); delete extra.allowNegative;
     u.wallet_balance = bal; emit('users', 'update', u);
     const t = { id: uid(), created: now(), user: uidv, type: amount >= 0 ? 'credit' : 'debit', amount: Math.abs(amount), balance: bal, kind, note: note || '', ...extra };
     db.wallet_txs.push(t); emit('wallet_txs', 'create', t); return bal;

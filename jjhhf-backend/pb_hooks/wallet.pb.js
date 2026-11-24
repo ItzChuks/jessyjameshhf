@@ -479,6 +479,36 @@ routerAdd("POST", "/api/jjhhf/admin/delete-plan", (e) => {
   return e.json(200, out);
 }, $apis.requireAuth());
 
+// 21c) Admin: reset a member's late-penalty record. Every confirmed payment that carried a penalty goes back to the normal
+//      contribution amount and the penalties are refunded to the member's wallet as one "Refund" entry.
+//      waive_now: also waive the penalty on payments that are overdue right now (they are then taken at the normal amount).
+//      body { user, preview: true } -> counts only | { user, confirm: "RESET", waive_now }
+routerAdd("POST", "/api/jjhhf/admin/reset-penalties", (e) => {
+  const W = require(`${__hooks}/wallet.js`);
+  if (e.auth.getString("role") !== "admin") throw new ForbiddenError("Admins only.");
+  const b = e.requestInfo().body || {}, uid = String(b.user || "");
+  try { $app.findRecordById("users", uid); } catch (_) { throw new BadRequestError("Member not found."); }
+  const list = () => $app.findRecordsByFilter("payments", "user = {:u} && status = 'confirmed' && penalty > 0", "", 0, 0, { u: uid });
+  const pays = list(), total = pays.reduce((a, p) => a + p.getFloat("penalty"), 0);
+  if (b.preview) return e.json(200, { payments: pays.length, total });
+  if (String(b.confirm || "") !== "RESET") throw new BadRequestError("Type RESET to confirm.");
+  let out = {};
+  W.inTx((tx) => {
+    const ps = tx.findRecordsByFilter("payments", "user = {:u} && status = 'confirmed' && penalty > 0", "", 0, 0, { u: uid });
+    let sum = 0;
+    ps.forEach(p => { const pen = p.getFloat("penalty"); sum += pen;
+      p.set("amount", p.getFloat("amount") - pen); p.set("penalty", 0); p.set("late_count", 0);
+      p.set("note", (p.getString("note") || "Wallet") + " · penalty refunded"); tx.save(p); });
+    if (sum > 0) W.post(tx, uid, sum, "refund", "Refund · late penalties reset by the foundation (" + ps.length + " payment" + (ps.length === 1 ? "" : "s") + ")");
+    let waived = 0;
+    if (b.waive_now) tx.findRecordsByFilter("subscriptions", "user = {:u} && status = 'active'", "", 0, 0, { u: uid }).forEach(r => {
+      r.set("no_penalty_before", new Date().toISOString().replace("T", " ")); tx.save(r); waived++; });
+    out = { payments: ps.length, refunded: sum, waived, collected: W.collect(tx, uid) };
+  });
+  console.log("jjhhf: admin", e.auth.id, "reset late penalties of", uid, JSON.stringify(out));
+  return e.json(200, out);
+}, $apis.requireAuth());
+
 // 22) Admin: complete / cancel / reactivate a plan; a group changes as a whole.
 routerAdd("POST", "/api/jjhhf/admin/plan-status", (e) => {
   const W = require(`${__hooks}/wallet.js`);

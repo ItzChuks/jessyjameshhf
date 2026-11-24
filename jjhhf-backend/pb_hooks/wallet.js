@@ -13,7 +13,7 @@ const dayLagos = d => { const l = new Date(d.getTime() + 36e5); return l.getUTCD
 function post(app, uid, amount, kind, note, extra = {}) {
   const u = app.findRecordById("users", uid);
   const bal = u.getFloat("wallet_balance") + amount;
-  if (bal < 0 && !extra.allowNegative) throw new BadRequestError("Not enough money in your wallet.");   // allowNegative: an admin reversing a deposit
+  if (amount < 0 && bal < 0 && !extra.allowNegative) throw new BadRequestError("Not enough money in your wallet.");   // only money going OUT can be refused; a credit always goes in (it may just reduce a negative balance). allowNegative: an admin reversing a deposit
   u.set("wallet_balance", bal);
   app.save(u);
   const tx = new Record(app.findCollectionByNameOrId("wallet_txs"));
