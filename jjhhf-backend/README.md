@@ -107,6 +107,10 @@ plan and its payout requests are shown and marked paid together.
 - **Late penalty per plan** (Edit plan): "Charge the penalty" (usual), "Waive it on what is overdue now", or "No penalty on this
   plan" (never; stored as `no_penalty_before = 2999-12-31`). Works even when the plan has a payout request; anything due is then
   collected at the normal amount. The plan row shows "No late penalty". Route: `edit-plan` with `penalty_mode`.
+- **Link codes** (member page, on a plan card): paste codes that were used to join but not recorded; each is linked to one plan in
+  the card that has no code yet (oldest first). The plan shows "joined with" the code and the code shows as used by this member
+  from the day that plan started. Other plans stay as normal registrations; the card/group is unchanged. Codes already used by
+  another plan are refused (reopen them first if that was a mistake). Route: `POST /api/jjhhf/admin/link-codes`.
 - **Reset late penalties** (member page, Late penalties card → Reset): every confirmed payment with a penalty goes back to the
   normal amount and the penalties are refunded to the wallet as one "Refund" line; optionally the penalty on payments overdue now
   is waived too (then taken at the normal amount). Type RESET to confirm. Route: `POST /api/jjhhf/admin/reset-penalties`.

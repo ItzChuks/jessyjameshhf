@@ -509,6 +509,58 @@ routerAdd("POST", "/api/jjhhf/admin/reset-penalties", (e) => {
   return e.json(200, out);
 }, $apis.requireAuth());
 
+// 21d) Admin: link plan codes to plans that were joined with them but not recorded (or recorded wrongly).
+//      Picks the plans in the group (a "× 10" card) that have no "joined with" code yet, oldest first, and gives each one code:
+//      the plan shows "joined with CODE" and the code becomes "used" by this member, linked to that plan, dated when the plan
+//      started. The other plans in the group stay as normal registrations; the group itself is not changed.
+//      body { subscription (any plan of the group), codes: [..] | "text", preview: true } -> plan per code, problems
+routerAdd("POST", "/api/jjhhf/admin/link-codes", (e) => {
+  const W = require(`${__hooks}/wallet.js`);
+  if (e.auth.getString("role") !== "admin") throw new ForbiddenError("Admins only.");
+  const b = e.requestInfo().body || {};
+  let lead; try { lead = $app.findRecordById("subscriptions", String(b.subscription || "")); } catch (_) { throw new BadRequestError("Plan not found."); }
+  const raw = [].concat(Array.isArray(b.codes) ? b.codes : [b.codes || ""]).join(" ");
+  const codes = []; raw.split(/[\s,;]+/).forEach(c => { if (c.trim()) { const k = W.normCode(c); if (!codes.includes(k)) codes.push(k); } });
+  if (!codes.length) throw new BadRequestError("Enter the plan codes to link.");
+  const plan = (app) => {
+    const group = W.groupOf(app, app.findRecordById("subscriptions", lead.id)), uid = lead.getString("user");
+    const free = group.filter(s => !s.getString("joined_code"));
+    const rows = codes.map(c => {
+      let rec = null; try { rec = app.findFirstRecordByData("subscriptions", "code", c); } catch (_) { }
+      if (!rec) return { code: c, ok: false, msg: "does not exist" };
+      if (rec.getString("user") === uid && group.some(g => g.id === rec.id)) return { code: c, ok: false, msg: "belongs to one of these same plans" };
+      if (group.some(g => g.getString("joined_code") === c)) return { code: c, ok: false, msg: "already linked to one of these plans" };
+      const usedSub = rec.getString("code_used_sub");
+      if (usedSub) { try { app.findRecordById("subscriptions", usedSub); return { code: c, ok: false, msg: "already used by " + (rec.getString("code_used_name") || "another member") + " (reopen it first if that was a mistake)" }; } catch (_) { } }
+      let owner = ""; try { const u = app.findRecordById("users", rec.getString("user")); owner = u.getString("name") || u.getString("email"); } catch (_) { }
+      return { code: c, ok: true, rec, owner };
+    });
+    const good = rows.filter(r => r.ok);
+    if (good.length > free.length) good.slice(free.length).forEach(r => { r.ok = false; r.msg = "no plan left without a code in this group (" + free.length + " free)"; });
+    rows.filter(r => r.ok).forEach((r, i) => { r.sub = free[i]; });
+    return { rows, group, free, uid };
+  };
+  if (b.preview) {
+    const p = plan($app);
+    return e.json(200, { group: p.group.length, free: p.free.length, rows: p.rows.map(r => ({ code: r.code, ok: r.ok, msg: r.msg || "", owner: r.owner || "", plan_started: r.sub ? r.sub.getString("created") : "" })) });
+  }
+  let out = {};
+  W.inTx((tx) => {
+    const p = plan(tx), bad = p.rows.filter(r => !r.ok);
+    if (bad.length) throw new BadRequestError("Fix these codes first: " + bad.map(r => r.code + " (" + r.msg + ")").join("; "));
+    let who = ""; try { const u = tx.findRecordById("users", p.uid); who = u.getString("name") || u.getString("email"); } catch (_) { }
+    p.rows.forEach(r => {
+      const sub = tx.findRecordById("subscriptions", r.sub.id), code = tx.findRecordById("subscriptions", r.rec.id);
+      sub.set("joined_code", r.code); tx.save(sub);
+      code.set("code_used_by", p.uid); code.set("code_used_name", who); code.set("code_used_at", sub.getString("created")); code.set("code_used_sub", sub.id);
+      code.set("code_admin", ""); code.set("code_admin_at", ""); tx.save(code);
+    });
+    out = { linked: p.rows.length, group: p.group.length, left_without_code: p.free.length - p.rows.length };
+  });
+  console.log("jjhhf: admin", e.auth.id, "linked plan codes to group of", lead.id, JSON.stringify(out));
+  return e.json(200, out);
+}, $apis.requireAuth());
+
 // 22) Admin: complete / cancel / reactivate a plan; a group changes as a whole.
 routerAdd("POST", "/api/jjhhf/admin/plan-status", (e) => {
   const W = require(`${__hooks}/wallet.js`);
