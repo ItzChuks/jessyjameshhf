@@ -561,6 +561,48 @@ routerAdd("POST", "/api/jjhhf/admin/link-codes", (e) => {
   return e.json(200, out);
 }, $apis.requireAuth());
 
+// 21e) Admin: reset EVERY member's late penalties at once.
+//      Paid penalties: each payment goes back to the normal amount and the member gets one "Refund" with their total.
+//      Unpaid penalties: the penalty on every payment overdue right now is waived (taken at the normal amount); later late payments
+//      follow the usual rule. Plans set to "No penalty on this plan" keep that setting. Then anything due is collected.
+//      body { preview: true } -> counts | { confirm: "RESET ALL" }
+routerAdd("POST", "/api/jjhhf/admin/reset-penalties-all", (e) => {
+  const W = require(`${__hooks}/wallet.js`), R = require(`${__hooks}/rules.js`);
+  if (e.auth.getString("role") !== "admin") throw new ForbiddenError("Admins only.");
+  const b = e.requestInfo().body || {}, now = new Date(), NEVER = "2999";
+  // plans with a penalty waiting right now: an overdue instalment that would cost more than the contribution
+  const owing = (app) => app.findRecordsByFilter("subscriptions", "status = 'active'", "", 0, 0).filter(s => {
+    if (String(s.getString("no_penalty_before")) >= NEVER) return false;
+    let plan; try { plan = app.findRecordById("plans", s.getString("plan")); } catch (_) { return false; }
+    const sub = { id: s.id, created: s.getString("created"), no_penalty_before: s.getString("no_penalty_before") }, st = R.stateFromPaid(sub, R.planObj(plan), s.getInt("paid_count"), now);
+    for (let k = 0; k < st.overdue; k++) if (st.cost(k) > st.A) return true;
+    return false;
+  });
+  const paidList = (app) => app.findRecordsByFilter("payments", "status = 'confirmed' && penalty > 0", "", 0, 0);
+  if (b.preview) {
+    const pays = paidList($app), subs = owing($app), users = new Set(pays.map(p => p.getString("user")));
+    const ou = new Set(subs.map(s => s.getString("user")));
+    return e.json(200, { paid_payments: pays.length, paid_total: pays.reduce((a, p) => a + p.getFloat("penalty"), 0), paid_members: users.size, owing_plans: subs.length, owing_members: ou.size, members: new Set([...users, ...ou]).size });
+  }
+  if (String(b.confirm || "") !== "RESET ALL") throw new BadRequestError("Type RESET ALL to confirm.");
+  let out = {};
+  W.inTx((tx) => {
+    const per = {}, touched = new Set();
+    paidList(tx).forEach(p => { const u = p.getString("user"), pen = p.getFloat("penalty");
+      per[u] = per[u] || { sum: 0, n: 0 }; per[u].sum += pen; per[u].n++;
+      p.set("amount", p.getFloat("amount") - pen); p.set("penalty", 0); p.set("late_count", 0); p.set("note", (p.getString("note") || "Wallet") + " · penalty refunded"); tx.save(p); });
+    let refunded = 0;
+    Object.keys(per).forEach(u => { try { tx.findRecordById("users", u); } catch (_) { return; }
+      W.post(tx, u, per[u].sum, "refund", "Refund · late penalties reset by the foundation (" + per[u].n + " payment" + (per[u].n === 1 ? "" : "s") + ")"); refunded += per[u].sum; touched.add(u); });
+    const subs = owing(tx);
+    subs.forEach(s => { s.set("no_penalty_before", now.toISOString().replace("T", " ")); tx.save(s); touched.add(s.getString("user")); });
+    let collected = 0; touched.forEach(u => { try { collected += W.collect(tx, u); } catch (_) { } });
+    out = { members: touched.size, refunded, refund_members: Object.keys(per).length, waived_plans: subs.length, collected };
+  });
+  console.log("jjhhf: admin", e.auth.id, "reset ALL late penalties", JSON.stringify(out));
+  return e.json(200, out);
+}, $apis.requireAuth());
+
 // 22) Admin: complete / cancel / reactivate a plan; a group changes as a whole.
 routerAdd("POST", "/api/jjhhf/admin/plan-status", (e) => {
   const W = require(`${__hooks}/wallet.js`);
