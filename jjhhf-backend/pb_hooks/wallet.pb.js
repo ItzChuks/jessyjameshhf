@@ -122,6 +122,11 @@ cronAdd("jjhhf_wallet_collect", "* * * * *", () => {
     const rows = arrayOf(new DynamicModel({ uid: "" }));
     $app.db().newQuery("SELECT [[user]] AS uid FROM {{subscriptions}} WHERE [[status]] = 'active' AND ([[next_collect]] = '' OR [[next_collect]] <= {:now}) GROUP BY [[user]] ORDER BY MIN([[next_collect]]) LIMIT 50000")
       .bind({ now: W.ts(new Date()) }).all(rows);
+    // also members with a fully paid plan still owing the clearance fee who now have enough in the wallet
+    const rows2 = arrayOf(new DynamicModel({ uid: "" }));
+    $app.db().newQuery("SELECT s.[[user]] AS uid FROM {{subscriptions}} s JOIN {{users}} u ON u.[[id]] = s.[[user]] WHERE s.[[status]] = 'active' AND s.[[clearance_paid_at]] = '' AND s.[[next_collect]] = {:done} AND u.[[wallet_balance]] >= {:fee} AND NOT EXISTS (SELECT 1 FROM {{payouts}} p WHERE p.[[subscription]] = s.[[id]] AND p.[[status]] != 'rejected') GROUP BY s.[[user]] LIMIT 50000")
+      .bind({ done: W.DONE, fee: W.FEES.clearance }).all(rows2);
+    const seen = {}; rows.forEach(r => seen[r.uid] = 1); rows2.forEach(r => { if (!seen[r.uid]) { seen[r.uid] = 1; rows.push(r); } });
     let n = 0;
     for (const r of rows) {
       if (Date.now() - t0 > 50e3) break;

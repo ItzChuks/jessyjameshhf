@@ -105,7 +105,29 @@ function collect(app, uid) {
     it.rec.set("paid_count", it.paid); it.rec.set("next_collect", next);
     app.save(it.rec);
   });
+  collectClearance(app, uid);                                    // plans whose payments are all complete owe the clearance fee
   return done;
+}
+
+// The ₦3,500 clearance fee, taken automatically once a plan's payments are all complete (oldest plan first).
+// If the wallet is short the plan simply waits; it is tried again on every top-up and by the collector.
+// The payout of a plan cannot be requested until its clearance fee is paid. Plans that already have a payout record
+// (requested or paid out before this rule) are left alone.
+function collectClearance(app, uid) {
+  const subs = app.findRecordsByFilter("subscriptions", "user = {:u} && status = 'active' && clearance_paid_at = '' && next_collect = {:d}", "created", 0, 0, { u: uid, d: DONE });
+  let bal = balanceOf(app, uid), n = 0;
+  for (const s of subs) {
+    if (app.findRecordsByFilter("payouts", "subscription = {:s} && status != 'rejected'", "", 1, 0, { s: s.id }).length) continue;
+    if (app.findRecordsByFilter("fees", "subscription = {:s} && type = 'clearance' && status = 'confirmed'", "", 1, 0, { s: s.id }).length) { s.set("clearance_paid_at", ts(new Date())); app.save(s); continue; }
+    if (bal < FEES.clearance) break;                            // waits for the next top-up
+    let pl = ""; try { pl = app.findRecordById("plans", s.getString("plan")).getString("name"); } catch (_) { }
+    bal = post(app, uid, -FEES.clearance, "clearance", "Clearance fee · " + pl + " (all payments complete)", { subscription: s.id });
+    s.set("clearance_paid_at", ts(new Date())); app.save(s);
+    const f = new Record(app.findCollectionByNameOrId("fees"));
+    f.set("user", uid); f.set("type", "clearance"); f.set("amount", FEES.clearance); f.set("status", "confirmed"); f.set("note", "Wallet · taken automatically"); f.set("subscription", s.id);
+    app.save(f); n++;
+  }
+  return n;
 }
 
 // ---- plan codes ----
@@ -577,4 +599,4 @@ function inTx(fn) {
   }
 }
 
-module.exports = { deletePlans, FEES, MAX_SLOTS, naira, post, credit, collect, joinPlan, joinMany, importPlan, importMany, editPlan, editGroup, setGroupStatus, groupOf, markCodesUsed, wipeMemberData, MEMBER_DATA, balanceOf, inTx, syncSub, ts, DONE, codeState, normCode };
+module.exports = { collectClearance, deletePlans, FEES, MAX_SLOTS, naira, post, credit, collect, joinPlan, joinMany, importPlan, importMany, editPlan, editGroup, setGroupStatus, groupOf, markCodesUsed, wipeMemberData, MEMBER_DATA, balanceOf, inTx, syncSub, ts, DONE, codeState, normCode };

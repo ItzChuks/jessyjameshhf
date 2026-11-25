@@ -2,7 +2,8 @@
 //   shirt      ₦5,000  one time. Members can use the dashboard, join plans and pay contributions without it;
 //                      it is only required when they request a payout ("unregistered" members cannot request payouts)
 //   join       ₦3,000  paid every time a member joins a plan; the plan is joined automatically once the payment is verified
-//   clearance  ₦3,500  paid ONCE per plan joined, before that plan's payout can be requested; the request is sent at the same time.
+//   clearance  ₦3,500  paid ONCE per plan, taken from the wallet automatically as soon as all the plan's payments are complete
+//              (W.collectClearance; it waits for a top-up if the wallet is short). The payout cannot be requested until it is paid.
 //              If a payout request is rejected, the member can request again without paying the clearance fee a second time.
 // A payout request also needs ANOTHER plan of the same member to be actively running (see runningElsewhere).
 // KEEP IN SYNC with FEES in the frontend app.js (that copy is for display only).
@@ -91,9 +92,10 @@ function pay(app, uid, type, body) {
   members.forEach(m => { const why = payoutProblem(app, uid, m.id); if (why) throw new BadRequestError(members.length > 1 ? "Not every plan in this group can be paid out yet: " + why : why); });
   if (!P.name || !P.bank || !/^\d{10}$/.test(P.acct) || !P.addr) throw new BadRequestError(PROFILE_MSG);
   const details = P.name + " · " + P.bank + " · " + P.acct + " · " + P.addr;   // a copy kept on the request, in case the profile changes later
-  // the clearance fee is paid once per plan: plans that already paid it (e.g. after a rejected request) are not charged again
+  // the clearance fee is taken automatically when a plan's payments are complete; the payout cannot be requested until it is paid
+  W.collectClearance(app, uid);
   const unpaid = members.filter(m => !clearancePaid(app, m.id));
-  short(FEES.clearance * unpaid.length);
+  if (unpaid.length) { const need = FEES.clearance * unpaid.length, bal = W.balanceOf(app, uid); throw new BadRequestError("The " + W.naira(FEES.clearance) + " clearance fee" + (unpaid.length > 1 ? " for " + unpaid.length + " plans (" + W.naira(need) + ")" : "") + " has not been paid yet. It is taken from your wallet automatically" + (bal < need ? "; please top up at least " + W.naira(need - bal) + "." : ".") + " You can request the payout once it is paid."); }
   const pl = app.findRecordById("plans", first.getString("plan")).getString("name");
   const gid = members.length > 1 ? first.getString("group_id") : "";
   members.forEach((m, k) => {

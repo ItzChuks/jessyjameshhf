@@ -8,6 +8,7 @@ Plain HTML, CSS, JavaScript, Tailwind and PocketBase. Upload the folder to any s
 - `auth.html` log in / sign up
 - `dashboard.html` member area: wallet (deposit with Flutterwave, ₦100 tax charge), browse/join plans (optional plan code), my contributions with plan codes, transaction history with PDF invoices, fees, payouts, rules, profile
 - `admin.html` admin area: overview, users, plans (length in weeks + plan-code days), contributions, plan codes (usable / used / expired; "Search many codes" pastes a list and shows each code's owner, plan progress and status, plus any codes not found), payments, deposits, wallet ledger, fees, payouts
+- Clearance fee (₦3,500 per plan): taken from the wallet automatically as soon as a plan's payments are all complete; if the wallet is short it waits for the next top-up. "Request payout" stays locked until it is paid (enforced on the server in pb_hooks/fees.js and wallet.js collectClearance).
 - `terms.html` Terms and Conditions
 
 ## Setup (2 edits)
