@@ -7,7 +7,7 @@ Plain HTML, CSS, JavaScript, Tailwind and PocketBase. Upload the folder to any s
 - `index.html` homepage (plans load live from PocketBase)
 - `auth.html` log in / sign up
 - `dashboard.html` member area: wallet (deposit with Flutterwave, ₦100 tax charge), browse/join plans (optional plan code), my contributions with plan codes, transaction history with PDF invoices, fees, payouts, rules, profile
-- `admin.html` admin area: overview, users, plans (length in weeks + plan-code days), contributions, plan codes (usable / used / expired), payments, deposits, wallet ledger, fees, payouts
+- `admin.html` admin area: overview, users, plans (length in weeks + plan-code days), contributions, plan codes (usable / used / expired; "Search many codes" pastes a list and shows each code's owner, plan progress and status, plus any codes not found), payments, deposits, wallet ledger, fees, payouts
 - `terms.html` Terms and Conditions
 
 ## Setup (2 edits)
