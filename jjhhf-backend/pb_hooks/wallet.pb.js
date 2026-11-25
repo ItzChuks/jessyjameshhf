@@ -614,7 +614,15 @@ routerAdd("POST", "/api/jjhhf/admin/plan-status", (e) => {
   if (e.auth.getString("role") !== "admin") throw new ForbiddenError("Admins only.");
   const b = e.requestInfo().body || {};
   let out = {};
-  W.inTx((tx) => { out = W.setGroupStatus(tx, String(b.subscription || ""), String(b.status || "")); });
+  // body { subscription, status } | { subscriptions: [ids], status } (several cards at once) | { restore: [{ id, status }] } (undo)
+  if (Array.isArray(b.restore)) {
+    W.inTx((tx) => { b.restore.slice(0, 5000).forEach(x => { if (!["active", "completed", "cancelled"].includes(String(x.status))) return; try { const r = tx.findRecordById("subscriptions", String(x.id)); r.set("status", String(x.status)); tx.save(r); } catch (_) { } }); });
+    return e.json(200, { updated: b.restore.length });
+  }
+  const ids = Array.isArray(b.subscriptions) ? [...new Set(b.subscriptions.map(String))] : [String(b.subscription || "")];
+  if (ids.length > 2000) throw new BadRequestError("Choose at most 2,000 plans at once.");
+  W.inTx((tx) => { const seen = {}; out = { updated: 0, before: [] };
+    ids.forEach(id => { if (seen[id]) return; const r = W.setGroupStatus(tx, id, String(b.status || "")); r.before.forEach(x => { if (!seen[x.id]) { seen[x.id] = 1; out.before.push(x); out.updated++; } }); }); });
   return e.json(200, out);
 }, $apis.requireAuth());
 
