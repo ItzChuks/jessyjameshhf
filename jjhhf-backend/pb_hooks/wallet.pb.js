@@ -153,7 +153,7 @@ routerAdd("GET", "/api/jjhhf/admin/stats", (e) => {
   const byGw = {}; ["flutterwave", "paystack", "monnify"].forEach(g => { const r = one("SELECT COUNT(*) AS n, COALESCE(SUM([[amount]]), 0) AS total FROM {{deposits}} WHERE [[status]] = 'successful' AND [[gateway]] = '" + g + "'", { n: 0, total: -0 }); byGw[g] = { n: r.n, total: r.total }; });
   const rc = one("SELECT COALESCE(SUM(CASE WHEN [[status]] = 'pending' AND [[gateway]] = 'transfer' THEN 1 ELSE 0 END), 0) AS waiting, COALESCE(SUM(CASE WHEN [[status]] = 'successful' AND [[verified]] = 'auto' THEN 1 ELSE 0 END), 0) AS tocheck, COALESCE(SUM(CASE WHEN [[status]] = 'reversed' THEN [[amount]] ELSE 0 END), 0) AS reversed FROM {{deposits}}", { waiting: 0, tocheck: 0, reversed: -0 });
   const sp = one("SELECT COUNT(*) AS n FROM {{users}} WHERE [[suspended]] = TRUE", { n: 0 });
-  const cd = one("SELECT COALESCE(SUM(CASE WHEN [[code_used_at]] != '' OR [[code_admin]] = 'used' THEN 1 ELSE 0 END), 0) AS used, COALESCE(SUM(CASE WHEN [[code]] != '' AND [[code_used_at]] = '' AND [[code_admin]] = '' AND [[code_from]] <= {:now} AND [[code_until]] > {:now} THEN 1 ELSE 0 END), 0) AS open FROM {{subscriptions}}".replace(/\{:now\}/g, "'" + new Date().toISOString().replace("T", " ") + "'"), { used: 0, open: 0 });
+  const cd = one("SELECT COALESCE(SUM(CASE WHEN [[code_used_at]] != '' OR [[code_admin]] = 'used' THEN 1 ELSE 0 END), 0) AS used, COALESCE(SUM(CASE WHEN [[code]] != '' AND [[code_used_at]] = '' AND [[code_admin]] = '' AND [[code_from]] <= {:now}" + (require(`${__hooks}/wallet.js`).codesNeverExpire($app) ? "" : " AND [[code_until]] > {:now}") + " THEN 1 ELSE 0 END), 0) AS open FROM {{subscriptions}}".replace(/\{:now\}/g, "'" + new Date().toISOString().replace("T", " ") + "'"), { used: 0, open: 0 });
   return e.json(200, {
     users: all.users, members: u.members, registered: u.registered, unregistered: u.members - u.registered, withAccount: u.withAccount, admins: all.users - u.members,
     held: all.held, subscriptions: s.n, activeSubscriptions: s.active, pendingPayments: p.pending, confirmedTotal: p.confirmed, penalties: p.penalties,
@@ -246,7 +246,7 @@ routerAdd("POST", "/api/jjhhf/admin/code-status", (e) => {
       if (rec.getString("code_used_at")) return no("This code was used by " + (rec.getString("code_used_name") || "a member") + ", so its status cannot be changed (use Reopen).");
       if (st === "open") {
         if (rec.getString("code_admin")) return no("Restore the code first.");
-        if (!(new Date(String(rec.getString("code_until")).replace(" ", "T")) > now)) return no("This code has already expired, so it cannot be opened (use Reopen).");
+        if (!require(`${__hooks}/wallet.js`).codesNeverExpire($app) && !(new Date(String(rec.getString("code_until")).replace(" ", "T")) > now)) return no("This code has already expired, so it cannot be opened (use Reopen).");
         if (new Date(String(rec.getString("code_from")).replace(" ", "T")) <= now) return no("This code is already open.");
         rec.set("code_from", iso(now));
       } else if (st === "auto") {
@@ -363,6 +363,21 @@ routerAdd("POST", "/api/jjhhf/admin/transfer", (e) => {
   if (e.auth.getString("role") !== "admin") throw new ForbiddenError("Admins only.");
   const b = e.requestInfo().body || {};
   return e.json(200, T.review($app, e.auth.id, b.id, String(b.action || ""), b.note));
+}, $apis.requireAuth());
+
+// 16b) "Codes never expire" switch. GET (any signed-in member): { never_expire, since }. POST (admin): { on: true | false }.
+routerAdd("GET", "/api/jjhhf/codes/mode", (e) => {
+  let r = null; try { r = $app.findFirstRecordByFilter("app_settings", "id != ''"); } catch (_) { }
+  return e.json(200, { never_expire: !!(r && r.getBool("codes_never_expire")), since: r ? r.getString("codes_never_expire_at") : "" });
+}, $apis.requireAuth());
+routerAdd("POST", "/api/jjhhf/admin/codes-never-expire", (e) => {
+  if (e.auth.getString("role") !== "admin") throw new ForbiddenError("Admins only.");
+  const on = !!(e.requestInfo().body || {}).on;
+  let r; try { r = $app.findFirstRecordByFilter("app_settings", "id != ''"); } catch (_) { r = new Record($app.findCollectionByNameOrId("app_settings")); }
+  r.set("codes_never_expire", on); r.set("codes_never_expire_at", on ? new Date().toISOString() : "");
+  $app.save(r);
+  console.log("jjhhf: admin", e.auth.id, "codes never expire", on);
+  return e.json(200, { never_expire: on, since: r.getString("codes_never_expire_at") });
 }, $apis.requireAuth());
 
 // 16) Admin: read / save the receiving account and the automatic-approval settings.

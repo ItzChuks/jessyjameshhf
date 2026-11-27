@@ -10,6 +10,7 @@ Plain HTML, CSS, JavaScript, Tailwind and PocketBase. Upload the folder to any s
 - `admin.html` admin area: overview, users, plans (length in weeks + plan-code days), contributions, plan codes (usable / used / expired; "Search many codes" pastes a list and shows each code's owner, plan progress and status, plus any codes not found), payments, deposits, wallet ledger, fees, payouts
 - Clearance fee (₦3,500 per plan): taken from the wallet automatically as soon as a plan's payments are all complete; if the wallet is short it waits for the next top-up. "Request payout" stays locked until it is paid (enforced on the server in pb_hooks/fees.js and wallet.js collectClearance).
 - Member page (admin): tick several plan cards (or Select all) to Complete, Cancel, Make active, Copy usable codes, Reopen used/expired codes or Delete them at once; status changes can be undone.
+- "Codes never expire" switch (Admin > Plan codes): while ON, every unused code stays usable past its last day (dates are not changed; codes marked expired by admin stay expired). OFF: codes go back to their own dates. Stored in app_settings.codes_never_expire (migration 1760000021).
 - `terms.html` Terms and Conditions
 
 ## Setup (2 edits)

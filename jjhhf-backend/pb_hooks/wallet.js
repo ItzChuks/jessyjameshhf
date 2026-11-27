@@ -142,6 +142,8 @@ function newCode(app) {
 }
 const lastDayLagos = until => { const l = new Date(until.getTime() + 36e5 - 1); return "the end of " + l.getUTCDate() + " " + MONTHS[l.getUTCMonth()] + " " + l.getUTCFullYear(); };   // "until" is the first moment after the last valid day
 const whenLagos = d => { const l = new Date(d.getTime() + 36e5); return l.getUTCDate() + " " + MONTHS[l.getUTCMonth()] + " " + l.getUTCFullYear() + ", " + String(l.getUTCHours()).padStart(2, "0") + ":" + String(l.getUTCMinutes()).padStart(2, "0"); };
+// The admin "Codes never expire" switch: while on, unused codes stay usable past their last day (their dates are not changed).
+function codesNeverExpire(app) { try { return app.findFirstRecordByFilter("app_settings", "id != ''").getBool("codes_never_expire"); } catch (_) { return false; } }
 // Where a code stands: { status: valid | used | expired | not_yet | invalid, rec, from, until, message }
 function codeState(app, code, now = new Date()) {
   const c = normCode(code);
@@ -153,9 +155,10 @@ function codeState(app, code, now = new Date()) {
   if (rec.getString("code_admin") === "used") return Object.assign(base, { status: "used", message: "This code has already been used." });
   if (rec.getString("code_admin") === "expired") return Object.assign(base, { status: "expired", message: "This code has expired." });
   if (rec.getString("status") === "cancelled") return Object.assign(base, { status: "invalid", message: "This code is no longer valid (its plan was cancelled)." });
-  if (now >= until) return Object.assign(base, { status: "expired", message: "This code expired at " + lastDayLagos(until) + "." });
+  const forever = codesNeverExpire(app);
+  if (now >= until && !forever) return Object.assign(base, { status: "expired", message: "This code expired at " + lastDayLagos(until) + "." });
   if (now < from) return Object.assign(base, { status: "not_yet", message: "This code can only be used from " + whenLagos(from) + "." });
-  return Object.assign(base, { status: "valid", message: "Code accepted. It can be used until " + lastDayLagos(until) + "." });
+  return Object.assign(base, { status: "valid", message: forever ? "Code accepted." : "Code accepted. It can be used until " + lastDayLagos(until) + "." });
 }
 
 // Joins a plan: takes the joining fee and, for cash/foodie plans joined mid-season, the catch-up for every instalment
@@ -599,4 +602,4 @@ function inTx(fn) {
   }
 }
 
-module.exports = { collectClearance, deletePlans, FEES, MAX_SLOTS, naira, post, credit, collect, joinPlan, joinMany, importPlan, importMany, editPlan, editGroup, setGroupStatus, groupOf, markCodesUsed, wipeMemberData, MEMBER_DATA, balanceOf, inTx, syncSub, ts, DONE, codeState, normCode };
+module.exports = { codesNeverExpire, collectClearance, deletePlans, FEES, MAX_SLOTS, naira, post, credit, collect, joinPlan, joinMany, importPlan, importMany, editPlan, editGroup, setGroupStatus, groupOf, markCodesUsed, wipeMemberData, MEMBER_DATA, balanceOf, inTx, syncSub, ts, DONE, codeState, normCode };
